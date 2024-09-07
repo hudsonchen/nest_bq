@@ -1,23 +1,44 @@
 import jax.numpy as jnp
 import jax
 from tensorflow_probability.substrates import jax as tfp
-from kernels import *
 from jax.config import config
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import time
+import pickle
+import argparse
+import os
 
-config.update('jax_platform_name', 'cpu')
+from utils.kernel_means import *
+
+# config.update('jax_platform_name', 'cpu')
 config.update("jax_enable_x64", True)
 
+def get_config():
+    parser = argparse.ArgumentParser(description='Toy example')
+    # Args settings
+    parser.add_argument('--seed', type=int, default=None)
+    parser.add_argument('--kernel_x', type=str, default='rbf')
+    parser.add_argument('--kernel_theta', type=str, default='rbf')
+    parser.add_argument('--save_path', type=str, default='./')
+    args = parser.parse_args()
+    return args
 
-def f(x, theta):
-    return jnp.sqrt(2 / jnp.pi) * jnp.exp(-2 * (x - theta) ** 2)
 
-def g(x):
-    return jnp.log(x)
+# def g(x, theta):
+#     return jnp.sqrt(2 / jnp.pi) * jnp.exp(-2 * (x - theta) ** 2)
+
+# def f(x):
+#     return jnp.log(x)
+
+def f(x):
+    return x ** 2
+
+def g(x, theta):
+    return (1 + jnp.sqrt(3) * jnp.abs(x - theta)) * jnp.exp(- jnp.sqrt(3) * jnp.abs(x - theta))
 
 def simulate_theta(T, rng_key):
+    rng_key, _ = jax.random.split(rng_key)
     Theta = jax.random.uniform(rng_key, shape=(T, 1), minval=-1., maxval=1.)
     return Theta
 
@@ -25,209 +46,119 @@ def simulate_theta(T, rng_key):
 def simulate_x_theta(N, Theta, rng_key):
     def simulate_x_per_theta(N, theta, rng_key):
         rng_key, _ = jax.random.split(rng_key)
-        x = jax.random.normal(rng_key, shape=(N,))
+        x = jax.random.uniform(rng_key, shape=(N, ), minval=-1., maxval=1.)
+        # x = jax.random.normal(rng_key, shape=(N, ))
         return x
     vmap_func = jax.vmap(simulate_x_per_theta, in_axes=(None, 0, None))
     X = vmap_func(N, Theta, rng_key)
     return X
 
 
-def BQ_RBF_Gaussian(rng_key, X, f_X, mu_X_theta, var_X_theta):
-    """
-    First stage of CBQ, computes the posterior mean and variance of the integral for a single instance of theta.
-    The kernel_x is RBF, and the hyperparameters are selected by minimizing the negative log-likelihood (NLL).
-    Not vectorized over theta.
-
-    Args:
-        rng_key: random number generator
-        X: shape (N, D)
-        f_X: shape (N, )
-        var_X_theta: (D, D)
-        mu_X_theta: (D, )
-    Returns:
-        I_BQ_mean: float
-        I_BQ_std: float
-    """
-    N, D = X.shape[0], X.shape[1]
-    eps = 1e-6
-
-    l = 1.0
-    A = 1.0
-
-    K = A * my_RBF(X, X, l)
-    K_inv = jnp.linalg.inv(K + eps * jnp.eye(N))
-    phi = A * kme_RBF_Gaussian(mu_X_theta, var_X_theta, l, X)
-    varphi = A * kme_double_RBF_Gaussian(mu_X_theta, var_X_theta, l)
-
-    I_BQ_mean = phi.T @ K_inv @ f_X
-    I_BQ_std = jnp.sqrt(jnp.abs(varphi - phi.T @ K_inv @ phi))
-    pause = True
-    return I_BQ_mean, I_BQ_std
-
-
-def BQ_RBF_Gaussian_vectorized_on_T(rng_key, X, f_X, mu_X_theta, var_X_theta):
-    """
-    First stage of CBQ, computes the posterior mean and variance of the integral for a single instance of theta.
-    Vectorized over Theta.
-
-    Args:
-        rng_key: random number generator
-        X: shape (T, N, D)
-        f_X: shape (T, N)
-        mu_X_theta: (T, D)
-        var_X_theta: (T, D, D)
-    Returns:
-        I_BQ_mean: (T, )
-        I_BQ_std: (T, )
-    """
-    vmap_func = jax.vmap(BQ_RBF_Gaussian, in_axes=(None, 0, 0, 0, 0))
-    return vmap_func(rng_key, X, f_X, mu_X_theta, var_X_theta)
-
-
-def BQ_RBF_uniform(rng_key, X, f_X, a, b):
-    """
-    First stage of CBQ, computes the posterior mean and variance of the integral for a single instance of theta.
-    The kernel_x is RBF, and the hyperparameters are selected by minimizing the negative log-likelihood (NLL).
-    Not vectorized over theta.
-
-    Args:
-        rng_key: random number generator
-        X: shape (N, D)
-        f_X: shape (N, )
-        a: float
-        b: float
-    Returns:
-        I_BQ_mean: float
-        I_BQ_std: float
-    """
-    N, D = X.shape[0], X.shape[1]
-    eps = 1e-6
-
-    A = 1.
-    l = 1.
-
-    K = A * my_RBF(X, X, l)
-    K_inv = jnp.linalg.inv(K + eps * jnp.eye(N))
-    phi = A * kme_RBF_uniform(a, b, l, X)
-    varphi = A
-
-    I_BQ_mean = phi.T @ K_inv @ f_X
-    I_BQ_std = jnp.sqrt(jnp.abs(varphi - phi.T @ K_inv @ phi))
-    pause = True
-    return I_BQ_mean.squeeze(), I_BQ_std
-
-
-def BQ_RBF_uniform_vectorized_on_T(rng_key, X, f_X, a, b):
-    """
-    First stage of CBQ, computes the posterior mean and variance of the integral for a single instance of theta.
-    Vectorized over Theta.
-
-    Args:
-        rng_key: random number generator
-        X: shape (T, N, D)
-        f_X: shape (T, N)
-        a: float
-        b: float
-    Returns:
-        I_BQ_mean: (T, )
-        I_BQ_std: (T, )
-    """
-    vmap_func = jax.vmap(BQ_RBF_uniform, in_axes=(None, 0, 0, None, None))
-    return vmap_func(rng_key, X, f_X, a, b)
-
-
-def run(N, T, rng_key):
+def run(args, N, T, rng_key):
     # This is a simulation study from Tom rainforth's paper
     # theta ~ U(-1, 1)
-    # x ~ N(0, 1)
-    # f(x, theta) = jnp.sqrt(2/pi) exp(-2 (x - theta)^2)
-    # g(x) = log(x)
-    # I = \E_{theta} g ( \E_{x} [f(x, theta)] )
+    # x ~ U(-1, 1)
+    # g(x, theta) = jnp.sqrt(2/pi) exp(-2 (x - theta)^2)
+    # f(x) = log(x)
+    # I = \E_{theta} f ( \E_{x | theta} [g(x, theta)] )
 
     rng_key, _ = jax.random.split(rng_key)
     Theta = simulate_theta(T, rng_key)
     X = simulate_x_theta(N, Theta, rng_key)
-    f_X = f(X, Theta)
+    g_X = g(X, Theta)
 
     # This is nested Monte Carlo
-    I_theta_MC = f_X.mean(1)
-    I_MC = g(I_theta_MC).mean(0)
-    # print(f"Nested Monte Carlo: {I_MC}")
+    I_theta_MC = g_X.mean(1)
+    I_NMC = f(I_theta_MC).mean(0)
+    # print(f"Nested Monte Carlo: {I_NMC}")
 
-    # This is nest Bayesian quadrature
-    mu = jnp.zeros([T, 1])
-    var = jnp.ones([T, 1, 1])
-    I_theta_BQ, _ = BQ_RBF_Gaussian_vectorized_on_T(rng_key, X[:, :, None], f_X, mu, var)
-    g_I_theta_BQ = g(I_theta_BQ)
-    a, b = 0, 1
-    I_BQ, _ = BQ_RBF_uniform(rng_key, I_theta_BQ[:, None], g_I_theta_BQ, a, b)
-    # print(f"Nested Bayesian quadrature: {I_BQ}")
+    # This is nest kernel quadrature
+    a, b = -1., 1.
+    mu, var = jnp.zeros([N, 1]), jnp.ones([N, 1, 1])
+    if args.kernel_x == "rbf":
+        I_theta_KQ = KQ_RBF_Uniform_Vectorized(rng_key, X[:, :, None], g_X, a, b)
+        # I_theta_KQ = KQ_RBF_Gaussian_Vectorized(rng_key, X[:, :, None], g_X, mu, var)
+    elif args.kernel_x == "matern":
+        I_theta_KQ = KQ_Matern_Uniform_Vectorized(rng_key, X[:, :, None], g_X, a, b)
+
+    f_I_theta_KQ = f(I_theta_KQ)
+    a, b = -1, 1
+    if args.kernel_theta == "rbf":
+        I_NKQ = KQ_RBF_Uniform(rng_key, Theta, f_I_theta_KQ, a, b)
+    elif args.kernel_theta == "matern":
+        I_NKQ = KQ_Matern_Uniform(rng_key, Theta, f_I_theta_KQ, a, b)
+    
+    # print(f"Nested kernel quadrature: {I_NKQ}")
     pause = True
-    return I_MC, I_BQ
+    return I_NMC, I_NKQ
 
 
-def main():
-    rng_key = jax.random.PRNGKey(int(time.time()))
-    true_value = 0.5 * jnp.log(2 / 5 / jnp.pi) - 2 / 15
+def main(args):
+    rng_key = jax.random.PRNGKey(args.seed)
+    # true_value = 0.5 * jnp.log(2 / 5 / jnp.pi) - 2 / 15
+
+    # # Debug code: Use 10000 samples to estimate the true value
+    # rng_key, _ = jax.random.split(rng_key)
+    # Theta = simulate_theta(10000, rng_key)
+    # X = simulate_x_theta(10000, Theta, rng_key)
+    # g_X = g(X, Theta)
+    # I_theta_MC = g_X.mean(1)
+    # I_NMC = f(I_theta_MC).mean(0)
+    # #
+    true_value_1 = -60 - 37 * jnp.sqrt(3) + 48 * (7 + 4 * jnp.sqrt(3)) * jnp.exp(2 * jnp.sqrt(3))
+    true_value = (1/144) * (192 - 83 * jnp.sqrt(3) + jnp.exp(-4 * jnp.sqrt(3)) * true_value_1)
+
     print(f"True value: {true_value}")
     N_list = jnp.arange(10, 50, 5).tolist()
-    T_list = jnp.arange(10, 50, 5).tolist()
+    # T_list = jnp.arange(10, 50, 5).tolist()
 
-    I_MC_err_dict = {}
-    I_BQ_err_dict = {}
+    I_NMC_err_dict = {}
+    I_NKQ_err_dict = {}
+
     num_seeds = 10
 
     rng_key = jax.random.PRNGKey(0)
 
     for N in N_list:
-        for T in T_list:
-            I_MC_errors = []
-            I_BQ_errors = []
-            for seed in tqdm(range(num_seeds)):
-                rng_key, _ = jax.random.split(rng_key)
-                I_MC, I_BQ = run(N, T, rng_key)
-                I_MC_errors.append(jnp.abs(I_MC - true_value))
-                I_BQ_errors.append(jnp.abs(I_BQ - true_value))
-            I_MC_err = jnp.median(jnp.array(I_MC_errors))
-            I_BQ_err = jnp.median(jnp.array(I_BQ_errors))
-            I_MC_err_dict[(N, T)] = I_MC_err
-            I_BQ_err_dict[(N, T)] = I_BQ_err
+        T = N
+        I_NMC_errors = []
+        I_NKQ_errors = []
+        
+        for _ in range(num_seeds):
+            rng_key, _ = jax.random.split(rng_key)
+            I_NMC, I_NKQ = run(args, N, T, rng_key)
+            I_NMC_errors.append(jnp.abs(I_NMC - true_value))
+            I_NKQ_errors.append(jnp.abs(I_NKQ - true_value))
+        
+        I_NMC_err = jnp.median(jnp.array(I_NMC_errors))
+        I_NKQ_err = jnp.median(jnp.array(I_NKQ_errors))
+        I_NMC_err_dict[(N, T)] = I_NMC_err
+        I_NKQ_err_dict[(N, T)] = I_NKQ_err
 
-    # Plotting code
-    fig1, axs1 = plt.subplots(len(N_list), 1, figsize=(6, 4*len(N_list)))
-    for i, N in enumerate(N_list):
-        T_values = []
-        I_MC_err_values = []
-        I_BQ_err_values = []
-        for T in T_list:
-            T_values.append(T)
-            I_MC_err_values.append(I_MC_err_dict[(N, T)])
-            I_BQ_err_values.append(I_BQ_err_dict[(N, T)])
-        axs1[i].plot(T_values, I_MC_err_values, label=f'I_MC, N={N}')
-        axs1[i].plot(T_values, I_BQ_err_values, label=f'I_BQ, N={N}')
-        axs1[i].set_xlabel('T')
-        axs1[i].set_ylabel('Absolute Error')
-        axs1[i].legend()
-        axs1[i].set_title(f'N={N}')
-    fig1.savefig('fix_N_plot_T.png')
+        methods = ["NKQ", "NMC"]
+        errs = [I_NKQ_err, I_NMC_err]
 
-    fig2, axs2 = plt.subplots(len(T_list), 1, figsize=(6, 4*len(T_list)))
-    for i, T in enumerate(T_list):
-        N_values = []
-        I_MC_err_values = []
-        I_BQ_err_values = []
-        for N in N_list:
-            N_values.append(N)
-            I_MC_err_values.append(I_MC_err_dict[(N, T)])
-            I_BQ_err_values.append(I_BQ_err_dict[(N, T)])
-        axs2[i].plot(N_values, I_MC_err_values, label=f'I_MC, T={T}')
-        axs2[i].plot(N_values, I_BQ_err_values, label=f'I_BQ, T={T}')
-        axs2[i].set_xlabel('N')
-        axs2[i].set_ylabel('Absolute Error')
-        axs2[i].legend()
-        axs2[i].set_title(f'T={T}')
-    fig2.savefig('fix_T_plot_N.png')
+        print(f"T = {T} and N = {N}")
+        print("========================================")
+        print("Methods:    " + " ".join([f"{method:<10}" for method in methods]))
+        print("RMSE:       " + " ".join([f"{value:<10.6f}" for value in errs]))
+        print("========================================\n\n")
 
+    with open(f"{args.save_path}/NKQ", 'wb') as file:
+        pickle.dump(I_NKQ_err_dict, file)
+    with open(f"{args.save_path}/NMC", 'wb') as file:
+        pickle.dump(I_NMC_err_dict, file)
+
+
+def create_dir(args):
+    if args.seed is None:
+        args.seed = int(time.time())
+    args.save_path += f'results/toy/'
+    args.save_path += f"seed_{args.seed}__kernel_x_{args.kernel_x}__kernel_theta_{args.kernel_theta}"
+    os.makedirs(args.save_path, exist_ok=True)
+    return args
 
 if __name__ == "__main__":
-    main()
+    args = get_config()
+    args = create_dir(args)
+    main(args)

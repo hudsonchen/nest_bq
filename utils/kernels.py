@@ -291,6 +291,31 @@ def kme_Matern_Gaussian(l, y):
     pause = True
     return final
 
+@jax.jit
+def kme_Matern_Uniform(a, b, l, y):
+    """
+    The implementation of the kernel mean embedding of the Matern kernel with Uniform distribution U[a,b]
+    Only in one dimension, D = 1
+    
+    Args:
+        y: (M, D)
+        l: scalar
+
+    Returns:
+        kernel mean embedding: (M, )
+    """
+    r = b - a
+    sqrt_3 = jnp.sqrt(3)
+    term1_1 = (2 * l) / sqrt_3
+    term1_2 = (3 * b + 2 * sqrt_3 * l - 3 * y) * jnp.exp(sqrt_3 * (y - b) / l) / 3
+    term1 = (term1_1 - term1_2) / r
+
+    term2_1 = (2 * l) / sqrt_3
+    term2_2 = (-3 * a + 2 * sqrt_3 * l + 3 * y) * jnp.exp(sqrt_3 * (a - y) / l) / 3
+    term2 = (term2_1 - term2_2) / r
+
+    kme = term1 + term2
+    return kme
 
 @jax.jit
 def kme_RBF_Gaussian(mu, Sigma, l, y):
@@ -449,20 +474,6 @@ def kme_double_log_normal_RBF(l, a, b):
     dummy = b ** 2 * jnp.sqrt(b ** (-2) + l ** (-2)) * jnp.sqrt(b ** (-2) + 1. / (b ** 2 + l ** 2))
     return 1. / dummy
 
-# def kme_Matern_Gamma(alpha, beta, l, y):
-#     """
-#     :param alpha: scalar
-#     :param beta: scalar
-#     :param l: scalar
-#     :param y: (N, )
-#     :return: (N, )
-#     """
-#     aprime = alpha + 1
-#     bprime = beta + (jnp.sqrt(3.) / (l ** 2))
-#     poly_term = (jnp.sqrt(3.) / (l ** 2) * ((beta ** alpha) / (bprime ** aprime)) * alpha) \
-#                 + (1. - jnp.sqrt(3) / (l ** 2) * y) * ((beta / bprime) ** alpha)
-#     exp_term = jnp.exp(jnp.sqrt(3.) * y / (l ** 2))
-#     return poly_term * exp_term
 
 @jax.jit
 def nystrom_inv(matrix, eps=1e-6):
