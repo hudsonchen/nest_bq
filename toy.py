@@ -11,7 +11,7 @@ import os
 
 from utils.kernel_means import *
 
-# config.update('jax_platform_name', 'cpu')
+config.update('jax_platform_name', 'cpu')
 config.update("jax_enable_x64", True)
 
 def get_config():
@@ -109,13 +109,15 @@ def main(args):
     true_value = (1/144) * (192 - 83 * jnp.sqrt(3) + jnp.exp(-4 * jnp.sqrt(3)) * true_value_1)
 
     print(f"True value: {true_value}")
-    N_list = jnp.arange(10, 50, 5).tolist()
+    # N_list = jnp.arange(10, 50, 5).tolist()
     # T_list = jnp.arange(10, 50, 5).tolist()
+    N_list = [10, 50, 200, 500, 1000]
+    # N_list = [1000]
 
     I_NMC_err_dict = {}
     I_NKQ_err_dict = {}
 
-    num_seeds = 10
+    num_seeds = 1
 
     rng_key = jax.random.PRNGKey(0)
 
@@ -124,7 +126,7 @@ def main(args):
         I_NMC_errors = []
         I_NKQ_errors = []
         
-        for _ in range(num_seeds):
+        for s in range(num_seeds):
             rng_key, _ = jax.random.split(rng_key)
             I_NMC, I_NKQ = run(args, N, T, rng_key)
             I_NMC_errors.append(jnp.abs(I_NMC - true_value))
@@ -144,9 +146,9 @@ def main(args):
         print("RMSE:       " + " ".join([f"{value:<10.6f}" for value in errs]))
         print("========================================\n\n")
 
-    with open(f"{args.save_path}/NKQ", 'wb') as file:
+    with open(f"{args.save_path}/seed_{args.seed}__NKQ", 'wb') as file:
         pickle.dump(I_NKQ_err_dict, file)
-    with open(f"{args.save_path}/NMC", 'wb') as file:
+    with open(f"{args.save_path}/seed_{args.seed}__NMC", 'wb') as file:
         pickle.dump(I_NMC_err_dict, file)
 
 
@@ -154,7 +156,7 @@ def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
     args.save_path += f'results/toy/'
-    args.save_path += f"seed_{args.seed}__kernel_x_{args.kernel_x}__kernel_theta_{args.kernel_theta}"
+    args.save_path += f"kernel_x_{args.kernel_x}__kernel_theta_{args.kernel_theta}"
     os.makedirs(args.save_path, exist_ok=True)
     return args
 
