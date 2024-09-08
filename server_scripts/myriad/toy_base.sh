@@ -1,10 +1,10 @@
-#$ -l mem=20G
-#$ -l h_rt=6:0:0
+#$ -l mem=10G
+#$ -l h_rt=1:0:0
 #$ -R y
 #$ -S /bin/bash
 #$ -wd /home/ucabzc9/Scratch/
 #$ -j y
-#$ -N cbq_decision
+#$ -N nest_bq_toy
 
 JOB_PARAMS=$(sed "${SGE_TASK_ID}q;d" "$1")
 echo "Job params: $JOB_PARAMS"
