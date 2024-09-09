@@ -13,6 +13,8 @@ import argparse
 config.update("jax_enable_x64", True)
 import gpjax as gpx
 
+from utils.kernel_means import *
+
 cols = matplotlib.rcParams["axes.prop_cycle"].by_key()["color"]
 
 
@@ -47,7 +49,39 @@ def get_posterior(
 
     return posterior
 
-def optimise_sample(sampler, rng_key, lower_bound, upper_bound, num_initial_sample_points):
+
+def negative_expected_decrease_kernel_quadrature(x, sampler, f_best, num_samples, rng_key):
+    # Sample from the posterior distribution at x
+    dist = sampler(x)
+    mu, var = dist.mean(), dist.variance()
+    samples = dist.sample(rng_key, [num_samples])
+    decreases = jnp.maximum(samples - f_best, 0)
+    # ed = jnp.mean(decreases)
+    ed = KQ_RBF_Gaussian(rng_key, x, decreases, mu, var)
+    return ed.squeeze()
+
+
+def negative_expected_decrease_monte_carlo(x, sampler, f_best, num_samples, rng_key):
+    # Sample from the posterior distribution at x
+    dist = sampler(x)
+    samples = dist.sample(rng_key, [num_samples])
+    decreases = jnp.maximum(samples - f_best, 0)
+    ed = jnp.mean(decreases)
+    return ed.squeeze()
+
+def negative_expected_decrease_closed_form(x, sampler, f_best, num_samples, rng_key):
+    # Get the mean (mu) and standard deviation (sigma) from the sampler
+    dist = sampler(x)
+    mu = dist.mean()
+    sigma = dist.stddev()
+
+    # Compute the improvement and the standard normal terms
+    z = (mu - f_best) / sigma
+    ed = (mu - f_best) * jax.scipy.stats.norm.cdf(z) + sigma * jax.scipy.stats.norm.pdf(z)
+    return ed.squeeze()
+
+
+def optimise_sample(sampler, rng_key, lower_bound, upper_bound, f_best, num_initial_sample_points):
     initial_sample_points = jax.random.uniform(
         rng_key,
         shape=(num_initial_sample_points, lower_bound.shape[0]),
@@ -56,11 +90,26 @@ def optimise_sample(sampler, rng_key, lower_bound, upper_bound, num_initial_samp
         maxval=upper_bound,
     )
     rng_key, _ = jax.random.split(rng_key)
-    initial_sample_y = sampler(rng_key, initial_sample_points)
+    initial_sample_y = sampler(initial_sample_points).sample(rng_key, [1])
     best_x = jnp.array([initial_sample_points[jnp.argmin(initial_sample_y)]])
 
+    num_samples = 100
+
+    dist = sampler(best_x)
+    mu, var = dist.mean(), dist.variance()
+    samples = dist.sample(rng_key, [num_samples])
+    decreases = jnp.maximum(samples - f_best, 0)
+    # ed = jnp.mean(decreases)
+    ed = KQ_RBF_Gaussian(rng_key, best_x, decreases.squeeze(), mu, var[:,None])
+
     # We want to maximise the utility function, but the optimiser performs minimisation. Since we're minimising the sample drawn, the sample is actually the negative utility function.
-    negative_utility_fn = lambda x: sampler(x).sample(rng_key, [1])
+    # Thompson sampling
+    # negative_utility_fn = lambda x: sampler(x).sample(rng_key, [1]).squeeze()
+    # Expected Improvement with closed form
+    # negative_utility_fn = lambda x: negative_expected_decrease_closed_form(x, sampler, f_best, num_samples, rng_key)
+    # Expected Improvement with Monte Carlo
+    negative_utility_fn = lambda x: negative_expected_decrease_monte_carlo(x, sampler, f_best, num_samples, rng_key)
+
     lbfgsb = jaxopt.ScipyBoundedMinimize(fun=negative_utility_fn, method="l-bfgs-b")
     bounds = (lower_bound, upper_bound)
     x_star = lbfgsb.run(best_x, bounds=bounds).params
@@ -68,14 +117,16 @@ def optimise_sample(sampler, rng_key, lower_bound, upper_bound, num_initial_samp
 
 def plot_bayes_opt(
     args,
+    rng_key,
     posterior: gpx.gps.AbstractPosterior,
-    sample,
+    sampler,
     dataset: gpx.Dataset,
     queried_x,
 ) -> None:
+    rng_key, _ = jax.random.split(rng_key)
     plt_x = jnp.linspace(0, 1, 1000).reshape(-1, 1)
     forrester_y = standardised_forrester(plt_x)
-    sample_y = sample(plt_x)
+    sample_y = sampler(plt_x).sample(rng_key, [1]).squeeze()
 
     latent_dist = posterior.predict(plt_x, train_data=dataset)
     predictive_dist = posterior.likelihood(latent_dist)
@@ -120,19 +171,20 @@ def plot_bayes_opt(
     ax.scatter(dataset.X, dataset.y, label="Observations", color=cols[2], zorder=2)
     ax.scatter(
         queried_x,
-        sample(queried_x),
-        label="Posterior Sample Optimum",
+        sampler(queried_x).sample(rng_key, [1]).squeeze(),
+        label="Qeury Point",
         marker="*",
         color=cols[3],
         zorder=3,
     )
     ax.legend(loc="center left", bbox_to_anchor=(0.975, 0.5))
+    plt.tight_layout()
     plt.savefig(args.save_path + f"bo_{len(dataset.X)}.png")
     plt.show()
 
 
 def main(args):
-    bo_iters = 5
+    bo_iters = 30
     initial_sample_num = 5
     lower_bound = jnp.array([0.0])
     upper_bound = jnp.array([1.0])
@@ -151,17 +203,19 @@ def main(args):
     for _ in range(bo_iters):
         rng_key, _ = jax.random.split(rng_key)
         posterior = get_posterior(D, prior, rng_key)
+        f_best = jnp.min(D.y)
 
         # Draw a sample from the posterior, and find the minimiser of it
         posterior_sampler = partial(posterior.predict, train_data = D)
-        x_star = optimise_sample(posterior_sampler, rng_key, lower_bound, upper_bound, num_initial_sample_points=100)
+        x_star = optimise_sample(posterior_sampler, rng_key, lower_bound, upper_bound, f_best, num_initial_sample_points=100)
 
-        plot_bayes_opt(args, posterior, posterior_sampler, D, x_star)
+        plot_bayes_opt(args, rng_key, posterior, posterior_sampler, D, x_star)
 
         # Evaluate the black-box function at the best point observed so far, and add it to the dataset
         y_star = standardised_forrester(x_star)
         print(f"Queried Point: {x_star}, Black-Box Function Value: {y_star}")
         D = D + gpx.Dataset(X=x_star, y=y_star)
+
 
 
 def create_dir(args):

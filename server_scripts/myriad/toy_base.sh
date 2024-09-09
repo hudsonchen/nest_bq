@@ -1,4 +1,5 @@
 #$ -l mem=10G
+#$ -pe smp 32
 #$ -l h_rt=1:0:0
 #$ -R y
 #$ -S /bin/bash
