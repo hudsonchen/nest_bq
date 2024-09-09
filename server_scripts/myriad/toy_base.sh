@@ -1,4 +1,4 @@
-#$ -l mem=10G
+#$ -l mem=15G
 #$ -pe smp 32
 #$ -l h_rt=1:0:0
 #$ -R y
