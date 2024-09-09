@@ -1,4 +1,3 @@
-#!/bin/bash
 --seed 0 --kernel_x matern --kernel_theta matern
 --seed 1 --kernel_x matern --kernel_theta matern
 --seed 2 --kernel_x matern --kernel_theta matern

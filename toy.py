@@ -1,7 +1,6 @@
 import jax.numpy as jnp
 import jax
 from tensorflow_probability.substrates import jax as tfp
-from jax.config import config
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import time
@@ -11,8 +10,8 @@ import os
 
 from utils.kernel_means import *
 
-config.update('jax_platform_name', 'cpu')
-config.update("jax_enable_x64", True)
+jax.config.update('jax_platform_name', 'cpu')
+jax.config.update("jax_enable_x64", True)
 
 def get_config():
     parser = argparse.ArgumentParser(description='Toy example')
@@ -118,8 +117,6 @@ def main(args):
     I_NKQ_err_dict = {}
 
     num_seeds = 1
-
-    rng_key = jax.random.PRNGKey(0)
 
     for N in N_list:
         T = N
