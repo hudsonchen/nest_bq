@@ -7,11 +7,27 @@ import time
 import pickle
 import argparse
 import os
-
+import pwd
 from utils.kernel_means import *
 
 jax.config.update('jax_platform_name', 'cpu')
 jax.config.update("jax_enable_x64", True)
+
+if pwd.getpwuid(os.getuid())[0] == 'hudsonchen':
+    os.chdir("/Users/hudsonchen/research/fx_bayesian_quaduature/nest_bq")
+elif pwd.getpwuid(os.getuid())[0] == 'zongchen':
+    # os.chdir("/home/zongchen/CBQ")
+    os.chdir("/home/zongchen/nest_bq")
+    # os.environ[
+    #     "XLA_FLAGS"
+    # ] = "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
+    # os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    # os.environ["MKL_NUM_THREADS"] = "1"
+    # os.environ["OMP_NUM_THREAD"] = "1"
+elif pwd.getpwuid(os.getuid())[0] == 'ucabzc9':
+    os.chdir("/home/ucabzc9/Scratch/nest_bq")
+else:
+    pass
 
 def get_config():
     parser = argparse.ArgumentParser(description='Toy example')
@@ -110,7 +126,7 @@ def main(args):
     print(f"True value: {true_value}")
     # N_list = jnp.arange(10, 50, 5).tolist()
     # T_list = jnp.arange(10, 50, 5).tolist()
-    N_list = [10, 50, 200, 500, 1000]
+    N_list = [10, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
     # N_list = [1000]
 
     I_NMC_err_dict = {}
@@ -161,3 +177,6 @@ if __name__ == "__main__":
     args = get_config()
     args = create_dir(args)
     main(args)
+    print("========================================")
+    print("Finished running")
+    print(f"Results saved at {args.save_path}")

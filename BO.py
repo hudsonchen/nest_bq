@@ -47,7 +47,7 @@ def get_posterior(
 
     return posterior
 
-def optimise_sample(sample, rng_key, lower_bound, upper_bound, num_initial_sample_points):
+def optimise_sample(sampler, rng_key, lower_bound, upper_bound, num_initial_sample_points):
     initial_sample_points = jax.random.uniform(
         rng_key,
         shape=(num_initial_sample_points, lower_bound.shape[0]),
@@ -55,11 +55,12 @@ def optimise_sample(sample, rng_key, lower_bound, upper_bound, num_initial_sampl
         minval=lower_bound,
         maxval=upper_bound,
     )
-    initial_sample_y = sample(initial_sample_points)
+    rng_key, _ = jax.random.split(rng_key)
+    initial_sample_y = sampler(rng_key, initial_sample_points)
     best_x = jnp.array([initial_sample_points[jnp.argmin(initial_sample_y)]])
 
     # We want to maximise the utility function, but the optimiser performs minimisation. Since we're minimising the sample drawn, the sample is actually the negative utility function.
-    negative_utility_fn = lambda x: sample(x)[0][0]
+    negative_utility_fn = lambda x: sampler(x).sample(rng_key, [1])
     lbfgsb = jaxopt.ScipyBoundedMinimize(fun=negative_utility_fn, method="l-bfgs-b")
     bounds = (lower_bound, upper_bound)
     x_star = lbfgsb.run(best_x, bounds=bounds).params
@@ -138,9 +139,7 @@ def main(args):
     rng_key = jax.random.PRNGKey(0)
 
     # Set up initial dataset
-    initial_x = tfp.mcmc.sample_halton_sequence(
-        dim=1, num_results=initial_sample_num, seed=rng_key, dtype=jnp.float64
-    ).reshape(-1, 1)
+    initial_x = jax.random.uniform(rng_key, shape=(initial_sample_num, 1), minval=lower_bound, maxval=upper_bound)
     initial_y = standardised_forrester(initial_x)
     D = gpx.Dataset(X=initial_x, y=initial_y)
 
@@ -154,7 +153,7 @@ def main(args):
         posterior = get_posterior(D, prior, rng_key)
 
         # Draw a sample from the posterior, and find the minimiser of it
-        posterior_sampler = partial(posterior.predict(train_data = D))
+        posterior_sampler = partial(posterior.predict, train_data = D)
         x_star = optimise_sample(posterior_sampler, rng_key, lower_bound, upper_bound, num_initial_sample_points=100)
 
         plot_bayes_opt(args, posterior, posterior_sampler, D, x_star)
