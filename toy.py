@@ -49,19 +49,22 @@ def get_config():
 def f(x):
     return x ** 2
 
+# def g(x, theta):
+#     return (1 + jnp.sqrt(3) * jnp.abs(x - theta)) * jnp.exp(- jnp.sqrt(3) * jnp.abs(x - theta))
+
 def g(x, theta):
-    return (1 + jnp.sqrt(3) * jnp.abs(x - theta)) * jnp.exp(- jnp.sqrt(3) * jnp.abs(x - theta))
+    return jnp.abs(x - theta) ** 1.5
 
 def simulate_theta(T, rng_key):
     rng_key, _ = jax.random.split(rng_key)
-    Theta = jax.random.uniform(rng_key, shape=(T, 1), minval=-1., maxval=1.)
+    Theta = jax.random.uniform(rng_key, shape=(T, 1), minval=0., maxval=1.)
     return Theta
 
 
 def simulate_x_theta(N, Theta, rng_key):
     def simulate_x_per_theta(N, theta, rng_key):
         rng_key, _ = jax.random.split(rng_key)
-        x = jax.random.uniform(rng_key, shape=(N, ), minval=-1., maxval=1.)
+        x = jax.random.uniform(rng_key, shape=(N, ), minval=0., maxval=1.)
         # x = jax.random.normal(rng_key, shape=(N, ))
         return x
     vmap_func = jax.vmap(simulate_x_per_theta, in_axes=(None, 0, None))
@@ -88,7 +91,7 @@ def run(args, N, T, rng_key):
     # print(f"Nested Monte Carlo: {I_NMC}")
 
     # This is nest kernel quadrature
-    a, b = -1., 1.
+    a, b = 0, 1.
     mu, var = jnp.zeros([N, 1]), jnp.ones([N, 1, 1])
     if args.kernel_x == "rbf":
         I_theta_KQ = KQ_RBF_Uniform_Vectorized(rng_key, X[:, :, None], g_X, a, b)
@@ -97,7 +100,7 @@ def run(args, N, T, rng_key):
         I_theta_KQ = KQ_Matern_Uniform_Vectorized(rng_key, X[:, :, None], g_X, a, b)
 
     f_I_theta_KQ = f(I_theta_KQ)
-    a, b = -1, 1
+    a, b = 0, 1
     if args.kernel_theta == "rbf":
         I_NKQ = KQ_RBF_Uniform(rng_key, Theta, f_I_theta_KQ, a, b)
     elif args.kernel_theta == "matern":
@@ -119,9 +122,10 @@ def main(args):
     # g_X = g(X, Theta)
     # I_theta_MC = g_X.mean(1)
     # I_NMC = f(I_theta_MC).mean(0)
-    # #
-    true_value_1 = -60 - 37 * jnp.sqrt(3) + 48 * (7 + 4 * jnp.sqrt(3)) * jnp.exp(2 * jnp.sqrt(3))
-    true_value = (1/144) * (192 - 83 * jnp.sqrt(3) + jnp.exp(-4 * jnp.sqrt(3)) * true_value_1)
+    #
+    # true_value_1 = -60 - 37 * jnp.sqrt(3) + 48 * (7 + 4 * jnp.sqrt(3)) * jnp.exp(2 * jnp.sqrt(3))
+    # true_value = (1/144) * (192 - 83 * jnp.sqrt(3) + jnp.exp(-4 * jnp.sqrt(3)) * true_value_1)
+    true_value = 4/25 *(1/3 + 5 * jnp.pi / 512)
 
     print(f"True value: {true_value}")
     # N_list = jnp.arange(10, 50, 5).tolist()
