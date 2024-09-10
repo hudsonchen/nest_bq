@@ -76,12 +76,17 @@ def negative_ei_look_ahead_mc(args, rng_key, x, posterior, lower_bound, upper_bo
                               y_best, num_initial_sample_points, num_samples):
     outer_sampler = partial(posterior.predict, train_data=train_data)
     outer_samples = outer_sampler(x).sample(rng_key, [num_samples])
+    dim = train_data.X.shape[1]
 
     inner_expectation = jnp.zeros((num_samples, 1))
     for s, sample in enumerate(outer_samples):
+        rng_key, _ = jax.random.split(rng_key)
+        initial_conditions = jax.random.uniform(rng_key, shape=(num_initial_sample_points, dim), 
+                                                minval=lower_bound, maxval=upper_bound)
         inner_sampler = partial(posterior.predict, train_data=train_data + gpx.Dataset(X=x, y=sample[:, None]))
-        inner_samples = inner_sampler(x).sample(rng_key, [num_samples])
-        inner_expectation.at[s, :].set(jnp.mean(jnp.maximum(inner_samples - y_best, 0)))
+        inner_samples = inner_sampler(initial_conditions).sample(rng_key, [num_samples])
+        inner_increases = jnp.maximum(inner_samples - y_best, 0)
+        inner_expectation.at[s, :].set((jnp.mean(inner_increases, 0)).max())
 
     increases = jnp.maximum(outer_samples - y_best, 0) + inner_expectation
     ei = jnp.mean(increases)
@@ -99,28 +104,17 @@ def negative_ei_look_ahead_kq(args, rng_key, x, posterior, lower_bound, upper_bo
         rng_key, _ = jax.random.split(rng_key)
         initial_conditions = jax.random.uniform(rng_key, shape=(num_initial_sample_points, dim), 
                                                 minval=lower_bound, maxval=upper_bound)
-
-        negative_utility_fn = lambda x: negative_ei_kq(args, x, posterior, train_data + gpx.Dataset(X=x, y=sample[:, None]), 
-                                                       y_best, num_samples, rng_key)
-        lbfgsb = jaxopt.ScipyBoundedMinimize(fun=negative_utility_fn, method="l-bfgs-b")
-        bounds = (lower_bound, upper_bound)
-        
-        params_list = []
-        fun_vals_list = []
-
-        # Run optimization for each initial condition and store both params and function values
-        for init_x in initial_conditions:
-            result = lbfgsb.run(init_x[None, :], bounds=bounds)
-            params_list.append(result.params)
-            fun_vals_list.append(result.state.fun_val)
-
-        x_star = jnp.array(params_list)[jnp.argmin(jnp.array(fun_vals_list))]
-        inner_expectation.at[s, :].set(x_star)
+        inner_sampler = partial(posterior.predict, train_data=train_data + gpx.Dataset(X=x, y=sample[:, None]))
+        inner_samples = inner_sampler(initial_conditions).sample(rng_key, [num_samples]).T
+        inner_increases = jnp.maximum(inner_samples - y_best, 0)
+        mu, var = inner_sampler(initial_conditions).mean(), inner_sampler(initial_conditions).variance()
+        ei = KQ_RBF_Gaussian_Vectorized(rng_key, inner_samples[:, :, None], inner_increases, mu[:, None], var[:, None, None])
+        inner_expectation.at[s, :].set(ei.max())
 
     increases = jnp.maximum(outer_samples - y_best, 0) + inner_expectation
-    mu, var = outer_sampler(x).mean(), outer_sampler(x).variance()
+    mu, cov = outer_sampler(x).mean(), outer_sampler(x).covariance()
     if args.kernel == 'rbf':
-        ei = KQ_RBF_Gaussian(rng_key, outer_samples, increases.squeeze(), mu, var[:, None])
+        ei = KQ_RBF_Gaussian(rng_key, outer_samples, increases.squeeze(), mu, cov)
     elif args.kernel == 'matern':
         ei = KQ_Matern_Gaussian(rng_key, outer_samples, increases.squeeze())
     else:
