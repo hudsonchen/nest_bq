@@ -2,7 +2,7 @@ import torch
 import jax
 import jax.numpy as jnp
 import numpy as np
-from botorch.test_functions import Ackley
+from botorch.test_functions import Ackley, DropWave
 from botorch.utils.datasets import FixedNoiseDataset
 
 
@@ -13,13 +13,24 @@ def emulator(x):
     return jnp.exp(-(x - 2)**2) + jnp.exp(-((x - 6)**2) / 10) + 1 / (x**2 + 1)
 
 
-def load_ackley(x: jnp.Array, n_samples: int):
+def load_ackley(x, dim):
     """
     Generates a dataset using the Ackley function and converts the dataset into JAX NumPy arrays.
     """
     x_torch = torch.tensor(np.array(x)) 
-    ackley = Ackley(dim=2)  # Ackley function with specified dimensionality
-    y_torch = ackley(x_torch)  # Maximize the function
+    ackley = Ackley(dim=dim) 
+    y_torch = -ackley(x_torch) # Take the negative of the Ackley function to maximize it
     y = jnp.array(y_torch.numpy())
-    return x, y
+    return y[:, None]
+
+
+def load_dropwave(x, dim):
+    """
+    Generates a dataset using the dropwave function and converts the dataset into JAX NumPy arrays.
+    """
+    x_torch = torch.tensor(np.array(x)) 
+    dropwave = DropWave(dim=dim) 
+    y_torch = -dropwave(x_torch) # Take the negative of the Ackley function to maximize it
+    y = jnp.array(y_torch.numpy())
+    return y[:, None]
 
