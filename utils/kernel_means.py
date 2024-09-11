@@ -143,7 +143,7 @@ def KQ_Matern_Gaussian_Vectorized(rng_key, X, f_X):
     """
     KQ, Vectorized over the first indice of X and f_X.
     Only works for one-d and for standard normal distribution
-
+    Actually, every integral can be written as integration wrt to a standard normal distribution
     Args:
         rng_key: random number generator
         X: shape (T, N, D)
