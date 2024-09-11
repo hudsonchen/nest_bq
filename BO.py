@@ -250,7 +250,7 @@ def plot_bayes_opt(
     args,
     rng_key,
     get_data_fn,
-    posterior: gpx.gps.AbstractPosterior,
+    posterior,
     X,
     y,
     queried_x,
