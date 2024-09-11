@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 
 
-def KQ_RBF_Gaussian(rng_key, X, f_X, mu_X_theta, var_X_theta):
+def KQ_RBF_Gaussian(X, f_X, mu_X_theta, var_X_theta):
     """
     KQ, not Vectorized.
 
@@ -36,7 +36,7 @@ def KQ_RBF_Gaussian(rng_key, X, f_X, mu_X_theta, var_X_theta):
     return I_NKQ
 
 
-def KQ_RBF_Gaussian_Vectorized(rng_key, X, f_X, mu_X_theta, var_X_theta):
+def KQ_RBF_Gaussian_Vectorized(X, f_X, mu_X_theta, var_X_theta):
     """
     KQ, Vectorized over the first indice of X, f_X, mu_X_theta and var_X_theta.
 
@@ -51,10 +51,10 @@ def KQ_RBF_Gaussian_Vectorized(rng_key, X, f_X, mu_X_theta, var_X_theta):
         I_NKQ_std: (T, )
     """
     vmap_func = jax.vmap(KQ_RBF_Gaussian, in_axes=(None, 0, 0, 0, 0))
-    return vmap_func(rng_key, X, f_X, mu_X_theta, var_X_theta)
+    return vmap_func(X, f_X, mu_X_theta, var_X_theta)
 
 
-def KQ_RBF_Uniform(rng_key, X, f_X, a, b):
+def KQ_RBF_Uniform(X, f_X, a, b):
     """
     KQ, not Vectorized.
 
@@ -87,7 +87,7 @@ def KQ_RBF_Uniform(rng_key, X, f_X, a, b):
     return I_NKQ.squeeze()
 
 
-def KQ_RBF_Uniform_Vectorized(rng_key, X, f_X, a, b):
+def KQ_RBF_Uniform_Vectorized(X, f_X, a, b):
     """
     KQ, Vectorized over the first indice of X and f_X.
     a and b are scalars
@@ -103,10 +103,10 @@ def KQ_RBF_Uniform_Vectorized(rng_key, X, f_X, a, b):
         I_NKQ_std: (T, )
     """
     vmap_func = jax.vmap(KQ_RBF_Uniform, in_axes=(None, 0, 0, None, None))
-    return vmap_func(rng_key, X, f_X, a, b)
+    return vmap_func(X, f_X, a, b)
 
 
-def KQ_Matern_Gaussian(rng_key, X, f_X):
+def KQ_Matern_Gaussian(X, f_X):
     """
     KQ, not Vectorized over theta.
     Only works for one-d and for standard normal distribution
@@ -139,7 +139,7 @@ def KQ_Matern_Gaussian(rng_key, X, f_X):
     return I_NKQ.squeeze()
 
 
-def KQ_Matern_Gaussian_Vectorized(rng_key, X, f_X):
+def KQ_Matern_Gaussian_Vectorized(X, f_X):
     """
     KQ, Vectorized over the first indice of X and f_X.
     Only works for one-d and for standard normal distribution
@@ -153,10 +153,10 @@ def KQ_Matern_Gaussian_Vectorized(rng_key, X, f_X):
         I_NKQ_std: (T, )
     """
     vmap_func = jax.vmap(KQ_Matern_Gaussian, in_axes=(None, 0, 0))
-    return vmap_func(rng_key, X, f_X)
+    return vmap_func(X, f_X)
 
 
-def KQ_Matern_Uniform(rng_key, X, f_X, a, b):
+def KQ_Matern_Uniform(X, f_X, a, b):
     """
     KQ, not Vectorized over theta.
     Only works for one-d, D = 1
@@ -190,7 +190,7 @@ def KQ_Matern_Uniform(rng_key, X, f_X, a, b):
 
 
 
-def KQ_Matern_Uniform_Vectorized(rng_key, X, f_X, a, b):
+def KQ_Matern_Uniform_Vectorized(X, f_X, a, b):
     """
     KQ, Vectorized over the first indice of X and f_X.
     Only works for one-d D = 1 and for standard normal distribution
@@ -206,4 +206,4 @@ def KQ_Matern_Uniform_Vectorized(rng_key, X, f_X, a, b):
         I_NKQ_std: (T, )
     """
     vmap_func = jax.vmap(KQ_Matern_Uniform, in_axes=(None, 0, 0, None, None))
-    return vmap_func(rng_key, X, f_X, a, b)
+    return vmap_func(X, f_X, a, b)

@@ -1,7 +1,7 @@
 from typing import List,Tuple 
 import jax
 from jax import config
-import jax.numpy as jnp
+import jax.numpy as np
 import scipy
 import numpy as np
 import jaxopt
@@ -16,6 +16,7 @@ config.update("jax_enable_x64", True)
 import gpjax as gpx
 import warnings
 from tqdm import tqdm
+import shutil
 
 from utils.kernel_means import *
 from datasets.bo_datasets import *
@@ -33,157 +34,199 @@ def get_config():
     parser.add_argument('--datasets', type=str)
     parser.add_argument('--kernel', type=str, default='rbf')
     parser.add_argument('--dim', type=int, default=2)
+    parser.add_argument('--N', type=int, default=20)
     args = parser.parse_args()
     return args
 
 
-def get_posterior(
-    data: gpx.Dataset, prior: gpx.gps.Prior, key: jnp.ndarray
-) -> gpx.gps.AbstractPosterior:
-    # Our function is noise-free, so we set the observation noise's standard deviation to a very small value
-    likelihood = gpx.likelihoods.Gaussian(
-        num_datapoints=data.n, obs_stddev=jnp.array(1e-6)
-    )
-
-    posterior = prior * likelihood
-
-    posterior, _ = gpx.fit_scipy(
-        model=posterior,
-        objective=lambda p, d: -gpx.objectives.conjugate_mll(p, d),
-        train_data=data,
-        verbose=False
-    )
-
-    return posterior
-
-def negative_ei_kq(args, x, posterior, train_data, y_best, num_samples, rng_key):
-    # Sample from the posterior distribution at x
-    sampler = partial(posterior.predict, train_data=train_data)
-    dist = sampler(x)
-    mu, var = dist.mean(), dist.variance()
-    samples = dist.sample(rng_key, [num_samples])
-    increases = jnp.maximum(samples - y_best, 0)
-    # ei = jnp.mean(increases)
-    ei = KQ_RBF_Gaussian(rng_key, samples, increases.squeeze(), mu, var[:, None])
-    return -ei.squeeze()
-
-
-def negative_ei_mc(args, x, posterior, train_data, y_best, num_samples, rng_key):
-    sampler = partial(posterior.predict, train_data=train_data)
-    dist = sampler(x)
-    samples = dist.sample(rng_key, [num_samples])
-    increases = jnp.maximum(samples - y_best, 0)
-    ei = jnp.mean(increases)
-    return -ei.squeeze()
-
-def negative_ei_look_ahead_mc(args, rng_key, x, posterior, lower_bound, upper_bound, train_data, 
-                              y_best, num_initial_sample_points, num_samples):
-    outer_sampler = partial(posterior.predict, train_data=train_data)
-    outer_samples = outer_sampler(x).sample(rng_key, [num_samples])
-    dim = train_data.X.shape[1]
-
-    inner_expectation = jnp.zeros((num_samples, 1))
-    for s, sample in enumerate(outer_samples):
-        rng_key, _ = jax.random.split(rng_key)
-        initial_conditions = jax.random.uniform(rng_key, shape=(num_initial_sample_points, dim), 
-                                                minval=lower_bound, maxval=upper_bound)
-        inner_sampler = partial(posterior.predict, train_data=train_data + gpx.Dataset(X=x, y=sample[:, None]))
-        inner_samples = inner_sampler(initial_conditions).sample(rng_key, [num_samples])
-        inner_increases = jnp.maximum(inner_samples - y_best, 0)
-        inner_expectation.at[s, :].set((jnp.mean(inner_increases, 0)).max())
-
-    increases = jnp.maximum(outer_samples - y_best, 0) + inner_expectation
-    ei = jnp.mean(increases)
-    return -ei.squeeze()
-
-
-def negative_ei_look_ahead_kq(args, rng_key, x, posterior, lower_bound, upper_bound, train_data, 
-                              y_best, num_initial_sample_points, num_samples):
-    outer_sampler = partial(posterior.predict, train_data=train_data)
-    outer_samples = outer_sampler(x).sample(rng_key, [num_samples])
-    dim = train_data.X.shape[1]
+class Kernel:
+    def __init__(self, length_scale=1.0, variance=1.0, kernel_type='rbf'):
+        self.length_scale = length_scale
+        self.variance = variance
+        self.kernel_type = kernel_type
     
-    inner_expectation = jnp.zeros((num_samples, 1))
-    for s, sample in enumerate(outer_samples):
-        rng_key, _ = jax.random.split(rng_key)
-        initial_conditions = jax.random.uniform(rng_key, shape=(num_initial_sample_points, dim), 
-                                                minval=lower_bound, maxval=upper_bound)
-        inner_sampler = partial(posterior.predict, train_data=train_data + gpx.Dataset(X=x, y=sample[:, None]))
-        inner_samples = inner_sampler(initial_conditions).sample(rng_key, [num_samples]).T
-        inner_increases = jnp.maximum(inner_samples - y_best, 0)
-        mu, var = inner_sampler(initial_conditions).mean(), inner_sampler(initial_conditions).variance()
-        if args.kernel == 'rbf':
-            ei = KQ_RBF_Gaussian_Vectorized(rng_key, inner_samples[:, :, None], inner_increases, mu[:, None], var[:, None, None])
-        elif args.kernel == 'matern':
-            inner_samples = (inner_samples - mu[:, None]) / jnp.sqrt(var[:, None])
-            ei = KQ_Matern_Gaussian_Vectorized(rng_key, inner_samples[:, :, None] , inner_increases)
+    def compute(self, x1, x2):
+        """
+        Compute the kernel matrix between x1 and x2 based on the specified kernel type.
+        """
+        x1 = np.asarray(x1)
+        x2 = np.asarray(x2)
+        
+        if self.kernel_type == 'rbf':
+            return self._squared_exponential(x1, x2)
+        elif self.kernel_type == 'matern_3_2':
+            return self._matern_3_2(x1, x2)
         else:
-            raise ValueError("Kernel not recognised")
-        inner_expectation.at[s, :].set(ei.max())
+            raise ValueError("Unsupported kernel type. Choose 'rbf' or 'matern_3_2'.")
 
-    increases = jnp.maximum(outer_samples - y_best, 0) + inner_expectation
-    mu, var = outer_sampler(x).mean(), outer_sampler(x).variance()
+    def _squared_exponential(self, x1, x2):
+        """
+        Compute the squared exponential (RBF) kernel between x1 and x2.
+        """
+        dists = np.sum(x1**2, 1)[:, np.newaxis] + np.sum(x2**2, 1) - 2 * np.dot(x1, x2.T)
+        return self.variance * np.exp(-0.5 / self.length_scale**2 * dists)
+    
+    def _matern_3_2(self, x1, x2):
+        """
+        Compute the Matérn 3/2 kernel between x1 and x2.
+        """
+        x1 = np.asarray(x1) / self.length_scale
+        x2 = np.asarray(x2) / self.length_scale
+        dists = np.sqrt(np.sum((x1[:, np.newaxis] - x2)**2, axis=2))  # Euclidean distance
+        term = (np.sqrt(3) * dists) 
+        return self.variance * (1 + term) * np.exp(-term)
+    
+def gp_posterior(X_train, y_train, X_test, kernel):
+    """
+    Compute the GP posterior mean and variance given training and test data using the specified kernel.
+    """
+    # Compute the kernel matrices
+    K = kernel.compute(X_train, X_train)  # Training kernel
+    K_s = kernel.compute(X_train, X_test)  # Training vs. test kernel
+    K_ss = kernel.compute(X_test, X_test)  # Test kernel
+    
+    # Add noise to the diagonal of K
+    noise = 1e-6
+    K += noise * np.eye(len(X_train))
+    
+    # Compute the inverse of K
+    K_inv = np.linalg.inv(K)
+    
+    # Compute the posterior mean
+    mu_s = K_s.T.dot(K_inv).dot(y_train)
+    
+    # Compute the posterior variance
+    cov_s = K_ss - K_s.T.dot(K_inv).dot(K_s)
+    
+    return mu_s, cov_s  # Return mean and variance
+
+
+def negative_ei_kq(args, x, posterior, X, y, y_best, num_samples, rng_key):
+    sampler = partial(posterior, X_train=X, y_train=y)
+    mu, var = sampler(X_test=x[None, :])
+    samples = rng_key.normal(mu.squeeze(), np.sqrt(var.squeeze()), num_samples)
+    increases = np.maximum(samples - y_best, 0)
+    # ei = np.mean(increases)
     if args.kernel == 'rbf':
-        ei = KQ_RBF_Gaussian(rng_key, outer_samples, increases.squeeze(), mu, var)
+        ei = KQ_RBF_Gaussian(jnp.array(samples[:, None]), jnp.array(increases.squeeze()), jnp.array(mu[0]), jnp.array(var))
     elif args.kernel == 'matern':
-        ei = KQ_Matern_Gaussian(rng_key, (outer_samples - mu) / jnp.sqrt(var), increases.squeeze())
+        ei = KQ_Matern_Gaussian(jnp.array((samples - mu[0]) / np.sqrt(var[0]))[:, None], jnp.array(increases.squeeze()))
+    return -ei.squeeze()
+
+
+def negative_ei_mc(args, x, posterior, X, y, y_best, num_samples, rng_key):
+    sampler = partial(posterior, X_train=X, y_train=y)
+    mu, var = sampler(X_test=x[None, :])
+    samples = rng_key.normal(mu.squeeze(), np.sqrt(var.squeeze()), num_samples)
+    increases = np.maximum(samples - y_best, 0)
+    ei = np.mean(increases)
+    return -ei.squeeze()
+
+
+def negative_ei_closed_form(args, x, posterior, X, y, y_best, num_samples, rng_key):
+    # Get the mean (mu) and standard deviation (sigma) from the sampler
+    sampler = partial(posterior, X_train=X, y_train=y)
+    mu, var = sampler(X_test=x[None, :])
+
+    # Compute the improvement and the standard normal terms
+    z = (mu - y_best) / np.sqrt(var)
+    ei = (mu - y_best) * scipy.stats.norm.cdf(z) + np.sqrt(var) * scipy.stats.norm.pdf(z)
+    return -ei.squeeze()
+
+
+def negative_ei_look_ahead_mc(args, rng_key, x, posterior, lower_bound, upper_bound, X, y, 
+                              y_best, num_samples):
+    outer_sampler = partial(posterior, X_train=X, y_train=y)
+    mu, var = outer_sampler(X_test=x[None, :])
+    outer_samples = rng_key.normal(mu.squeeze(), np.sqrt(var.squeeze()), num_samples)
+    dim = X.shape[1]
+
+    inner_expectation = np.zeros((num_samples, 1))
+    for s, sample in enumerate(outer_samples):
+        init_x = rng_key.uniform(lower_bound, upper_bound, (1, dim))
+        negative_utility_fn = lambda x_prime: negative_ei_mc(args, x_prime, posterior, 
+                                                             np.vstack([X, x]), 
+                                                             np.vstack([y, sample]), 
+                                                             y_best, num_samples, rng_key)
+        bounds = [(lower_bound[0], upper_bound[0])]  # Repeat bounds for each parameter dimension
+        result = scipy.optimize.minimize(negative_utility_fn, init_x.squeeze(), method = 'L-BFGS-B', 
+                                         bounds=bounds, options={'maxiter': 5})
+        inner_expectation[s,:] = result.fun
+
+    increases = np.maximum(outer_samples - y_best, 0) + inner_expectation
+    ei = np.mean(increases)
+    return -ei.squeeze()
+
+
+def negative_ei_look_ahead_kq(args, rng_key, x, posterior, lower_bound, upper_bound, X, y, 
+                              y_best, num_samples):
+    outer_sampler = partial(posterior, X_train=X, y_train=y)
+    mu, var = outer_sampler(X_test=x[None, :])
+    outer_samples = rng_key.normal(mu.squeeze(), np.sqrt(var.squeeze()), num_samples)
+    dim = X.shape[1]
+    
+    inner_expectation = np.zeros((num_samples,))
+    for s, sample in enumerate(outer_samples):
+        init_x = rng_key.uniform(lower_bound, upper_bound, (1, dim))
+        negative_utility_fn = lambda x_prime: negative_ei_kq(args, x_prime, posterior, 
+                                                             np.vstack([X, x]), 
+                                                             np.vstack([y, sample]), 
+                                                             y_best, num_samples, rng_key)
+        
+        bounds = [(lower_bound[0], upper_bound[0])]  # Repeat bounds for each parameter dimension
+        result = scipy.optimize.minimize(negative_utility_fn, init_x.squeeze(), method = 'Nelder-Mead', 
+                                         bounds=bounds, options={'maxiter': 5})
+        inner_expectation[s] = result.fun
+
+    increases = np.maximum(outer_samples - y_best, 0) - inner_expectation # this is minus, because we compute negative EI
+    if args.kernel == 'rbf':
+        ei = KQ_RBF_Gaussian(jnp.array(outer_samples[:, None]), jnp.array(increases.squeeze()), jnp.array(mu[0]), jnp.array(var))
+    elif args.kernel == 'matern':
+        ei = KQ_Matern_Gaussian(jnp.array((outer_samples - mu[0]) / np.sqrt(var[0]))[:, None], jnp.array(increases.squeeze()))
     else:
         raise ValueError("Kernel not recognised")
     return -ei.squeeze()
 
-def negative_ei_closed_form(args, x, posterior, train_data, y_best, num_samples, rng_key):
-    # Get the mean (mu) and standard deviation (sigma) from the sampler
-    sampler = partial(posterior.predict, train_data=train_data)
-    dist = sampler(x)
-    mu = dist.mean()
-    sigma = dist.stddev()
 
-    # Compute the improvement and the standard normal terms
-    z = (mu - y_best) / sigma
-    ei = (mu - y_best) * jax.scipy.stats.norm.cdf(z) + sigma * jax.scipy.stats.norm.pdf(z)
-    return -ei.squeeze()
-
-def optimise_sample(args, rng_key, posterior, train_data, lower_bound, upper_bound, y_best, num_initial_sample_points):
-    rng_key, _ = jax.random.split(rng_key)
-    dim = train_data.X.shape[1]
-    initial_conditions = jax.random.uniform(rng_key, shape=(num_initial_sample_points, dim), minval=lower_bound, maxval=upper_bound)
-    num_samples = 10
+def optimise_sample(args, rng_key, posterior, X, y, lower_bound, upper_bound, y_best, num_samples, num_initial_sample_points):
+    dim = X.shape[1]
+    initial_conditions = rng_key.uniform(lower_bound, upper_bound, (num_initial_sample_points, dim))
 
     # We want to maximise the utility function, but the optimiser performs minimisation.
     # Since we're minimising the sample drawn, the sample is actually the negative utility function.
     # Expected Improvement with closed form
     if args.utility == 'EI_closed_form':
-        negative_utility_fn = lambda x: negative_ei_closed_form(args, x, posterior, train_data, y_best, num_samples, rng_key)
+        negative_utility_fn = lambda x: negative_ei_closed_form(args, x, posterior, X, y, y_best, num_samples, rng_key)
     # Expected Improvement with Monte Carlo
     elif args.utility == 'EI_mc':
-        negative_utility_fn = lambda x: negative_ei_mc(args, x, posterior, train_data, y_best, num_samples, rng_key)
+        negative_utility_fn = lambda x: negative_ei_mc(args, x, posterior, X, y, y_best, num_samples, rng_key)
     # Expected Improvement with Kernel Quadrature
     elif args.utility == 'EI_kq':
-        negative_utility_fn = lambda x: negative_ei_kq(args, x, posterior, train_data, y_best, num_samples, rng_key)
+        negative_utility_fn = lambda x: negative_ei_kq(args, x, posterior, X, y, y_best, num_samples, rng_key)
     elif args.utility == 'EI_look_ahead_mc':
         negative_utility_fn = lambda x: negative_ei_look_ahead_mc(args, rng_key, x, posterior, lower_bound, 
-                                                                  upper_bound, train_data, 
-                                                                  y_best, num_initial_sample_points, num_samples)
+                                                                  upper_bound, X, y, 
+                                                                  y_best, num_samples)
     elif args.utility == 'EI_look_ahead_kq':
         negative_utility_fn = lambda x: negative_ei_look_ahead_kq(args, rng_key, x, posterior, lower_bound, 
-                                                                  upper_bound, train_data, 
-                                                                  y_best, num_initial_sample_points, num_samples)
+                                                                  upper_bound, X, y, 
+                                                                  y_best, num_samples)
     else:
         raise ValueError("Utility function not recognised")
     
-    lbfgsb = jaxopt.ScipyBoundedMinimize(fun=negative_utility_fn, method="l-bfgs-b")
-    bounds = (lower_bound, upper_bound)
+    bounds = [(lower_bound[0], upper_bound[0])] * len(initial_conditions[0])  # Repeat bounds for each parameter dimension
 
     params_list = []
     fun_vals_list = []
 
     # Run optimization for each initial condition and store both params and function values
     for init_x in initial_conditions:
-        result = lbfgsb.run(init_x[None, :], bounds=bounds)
-        params_list.append(result.params)
-        fun_vals_list.append(result.state.fun_val)
+        result = scipy.optimize.minimize(negative_utility_fn, init_x, method='Nelder-Mead', 
+                                         bounds=bounds, options={'maxiter': 10, 'disp': False})
+        params_list.append(result.x)  # Optimized parameters
+        fun_vals_list.append(result.fun)  # Function value at the minimum
 
-    x_star = jnp.array(params_list)[jnp.argmin(jnp.array(fun_vals_list))]
+    x_star = np.array(params_list)[np.argmin(np.array(fun_vals_list))]
     return x_star
 
 def plot_bayes_opt(
@@ -191,61 +234,42 @@ def plot_bayes_opt(
     rng_key,
     get_data_fn,
     posterior: gpx.gps.AbstractPosterior,
-    dataset: gpx.Dataset,
+    X,
+    y,
     queried_x,
     lower_bound, 
     upper_bound
 ) -> None:
-    sampler = partial(posterior.predict, train_data=dataset)
-    rng_key, _ = jax.random.split(rng_key)
-    plt_x = jnp.linspace(lower_bound[0], upper_bound[0], 1000).reshape(-1, 1)
-    y = get_data_fn(plt_x)
-    sample_y = sampler(plt_x).sample(rng_key, [1]).squeeze()
-
-    latent_dist = posterior.predict(plt_x, train_data=dataset)
-    predictive_dist = posterior.likelihood(latent_dist)
-
-    predictive_mean = predictive_dist.mean()
-    predictive_std = predictive_dist.stddev()
+    sampler = partial(posterior, X_train=X, y_train=y)
+    plt_x = np.linspace(lower_bound[0], upper_bound[0], 1000).reshape(-1, 1)
+    mu, var = sampler(X_test=plt_x)
+    sample_y = rng_key.multivariate_normal(mu.squeeze(), var, 1).T
+    plt_y = get_data_fn(plt_x)
 
     fig, ax = plt.subplots()
-    ax.plot(plt_x, predictive_mean, label="Predictive Mean", color=cols[1])
+    ax.plot(plt_x, mu.squeeze(), label="Predictive Mean", color=cols[1])
     ax.fill_between(
         plt_x.squeeze(),
-        predictive_mean - 2 * predictive_std,
-        predictive_mean + 2 * predictive_std,
+        mu.squeeze() - 2 * np.sqrt(np.diag(var)),
+        mu.squeeze() + 2 * np.sqrt(np.diag(var)),
         alpha=0.2,
         label="Two sigma",
-        color=cols[1],
-    )
-    ax.plot(
-        plt_x,
-        predictive_mean - 2 * predictive_std,
-        linestyle="--",
-        linewidth=1,
-        color=cols[1],
-    )
-    ax.plot(
-        plt_x,
-        predictive_mean + 2 * predictive_std,
-        linestyle="--",
-        linewidth=1,
         color=cols[1],
     )
     ax.plot(plt_x, sample_y, label="Posterior Sample")
     ax.plot(
         plt_x,
-        y,
+        plt_y,
         label="True Function",
         color=cols[0],
         linestyle="--",
         linewidth=2,
     )
-    ax.axvline(x=2.0087, linestyle=":", color=cols[3], label="True Optimum")
-    ax.scatter(dataset.X, dataset.y, label="Observations", color=cols[2], zorder=2)
+    ax.axvline(x=0.0, linestyle=":", color=cols[3], label="True Optimum")
+    ax.scatter(X, y, label="Observations", color=cols[2], zorder=2)
     ax.scatter(
-        queried_x,
-        sampler(queried_x).sample(rng_key, [1]).squeeze(),
+        queried_x.squeeze(),
+        get_data_fn(queried_x[None,:]).squeeze(),
         label="Qeury Point",
         marker="*",
         color=cols[3],
@@ -253,66 +277,68 @@ def plot_bayes_opt(
     )
     ax.legend(loc="center left", bbox_to_anchor=(0.975, 0.5))
     plt.tight_layout()
-    plt.savefig(args.save_path + f"bo_{len(dataset.X)}.png")
+    plt.savefig(args.save_path + f"bo_{len(X)}.png")
     plt.close()
     return
 
 def main(args):
-    bo_iters = 150
+    bo_iters = 30
     initial_sample_num = 5
-    rng_key = jax.random.PRNGKey(args.seed)
+    rng_key = np.random.default_rng(args.seed)
 
     # load datasets
     if args.datasets == 'ackley':
         dim = args.dim
         get_data_fn = partial(load_ackley, dim=args.dim)
-        lower_bound, upper_bound = jnp.array([-5.0]), jnp.array([5.0])
+        lower_bound, upper_bound = np.array([-5.0]), np.array([5.0])
         ground_truth_best_y = 1.4019
     elif args.datasets == 'emulator':
         get_data_fn = emulator
-        lower_bound, upper_bound = jnp.array([-10.0]), jnp.array([10.0])
+        lower_bound, upper_bound = np.array([-10.0]), np.array([10.0])
         ground_truth_best_y = 0.
         dim = 1
     else:
         raise ValueError("Dataset not recognised")
-    initial_x = jax.random.uniform(rng_key, (initial_sample_num, dim), minval=lower_bound, maxval=upper_bound)
-    initial_y = get_data_fn(initial_x)
-    D = gpx.Dataset(X=initial_x, y=initial_y)
-    D_init = D
+    X = rng_key.uniform(lower_bound, upper_bound, (initial_sample_num, dim))
+    y = get_data_fn(X)
+    X_init, y_init = X, y
 
     # GP prior
-    mean = gpx.mean_functions.Zero()
-    kernel = gpx.kernels.Matern52(n_dims=dim)
-    prior = gpx.gps.Prior(mean_function=mean, kernel=kernel)
+    pairwise_distances = np.abs(X[:, None, :] - X[None, :, :])
+    lengthscales = np.median(pairwise_distances, axis=(0, 1)) / 10
+    # kernel = gpx.kernels.Matern52(n_dims=dim, lengthscale=lengthscales)
+    kernel = Kernel(length_scale=lengthscales, variance=1.0, kernel_type='matern_3_2')
+    posterior = partial(gp_posterior, kernel=kernel)
+    num_samples = args.N
 
     # BO loop
     nmse_list = []
     for iter in tqdm(range(bo_iters)):
-        rng_key, _ = jax.random.split(rng_key)
-        posterior = get_posterior(D, prior, rng_key)
-        y_best = jnp.max(D.y)
+        y_best = np.max(y)
 
         # Draw a sample from the posterior, and find the minimiser of it
-        x_star = optimise_sample(args, rng_key, posterior, D, lower_bound, upper_bound, y_best, num_initial_sample_points=5)
+        x_star = optimise_sample(args, rng_key, posterior, X, y, 
+                                 lower_bound, upper_bound, y_best, num_samples, num_initial_sample_points=1)
 
-        # if (iter + len(D_init.y)) % 10 == 0:
-            # plot_bayes_opt(args, rng_key, get_data_fn, posterior, D, x_star, lower_bound, upper_bound,)
+        # if (iter + len(y)) % 10 == 0:
+        # plot_bayes_opt(args, rng_key, get_data_fn, posterior, X, y, x_star, lower_bound, upper_bound,)
 
         # Evaluate the black-box function at the best point observed so far, and add it to the dataset
-        y_star = get_data_fn(x_star)
-        D = D + gpx.Dataset(X=x_star, y=y_star)
+        y_star = get_data_fn(x_star[None, :])
+        X = np.vstack([X, x_star])
+        y = np.vstack([y, y_star])
 
-        nmse_list.append((jnp.max(D.y) - ground_truth_best_y) ** 2 / (jnp.max(D_init.y) - ground_truth_best_y) ** 2)
+        nmse_list.append((np.max(y) - ground_truth_best_y) ** 2 / (np.max(y_init) - ground_truth_best_y) ** 2)
 
     plt.figure()
     plt.plot(nmse_list)
     plt.xlabel("Iterations")
     plt.ylabel("NMSE")
     plt.yscale("log")
-    plt.savefig(args.save_path + f"{args.utility}__bo_nmse.png")
+    plt.savefig(args.save_path + f"bo_nmse.png")
     plt.close()
 
-    jnp.save(args.save_path + f"{args.utility}__bo_nmse.npy", jnp.array(nmse_list))
+    np.save(args.save_path + f"bo_nmse.npy", np.array(nmse_list))
     return
 
 
@@ -320,7 +346,9 @@ def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
     args.save_path += f'results/bo/{args.datasets}/'
-    args.save_path += f"dim_{args.dim}__kernel_{args.kernel}__seed_{args.seed}/"
+    args.save_path += f"{args.utility}__dim_{args.dim}__N_{args.N}__kernel_{args.kernel}__seed_{args.seed}/"
+    if os.path.exists(args.save_path) and os.listdir(args.save_path):  # If directory exists and is not empty
+        shutil.rmtree(args.save_path)
     os.makedirs(args.save_path, exist_ok=True)
     return args
 
