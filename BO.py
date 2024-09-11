@@ -314,6 +314,11 @@ def main(args):
         lower_bound, upper_bound = np.array([-10.0]), np.array([10.0])
         ground_truth_best_y = 0.
         dim = 1
+    elif args.datasets == 'dropwave':
+        args.dim = dim = 2
+        get_data_fn = partial(load_dropwave)
+        lower_bound, upper_bound = np.array([-5.12]), np.array([5.12])
+        ground_truth_best_y = 1.0
     else:
         raise ValueError("Dataset not recognised")
     X = rng_key.uniform(lower_bound, upper_bound, (initial_sample_num, dim))

@@ -23,12 +23,12 @@ def load_ackley(x, dim):
     return y[:, None]
 
 
-def load_dropwave(x, dim):
+def load_dropwave(x):
     """
     Generates a dataset using the dropwave function and converts the dataset into JAX NumPy arrays.
     """
     x_torch = torch.tensor(np.array(x)) 
-    dropwave = DropWave(dim=dim) 
+    dropwave = DropWave() 
     y_torch = -dropwave(x_torch) # Take the negative of the Ackley function to maximize it
     y = np.array(y_torch.numpy())
     return y[:, None]
