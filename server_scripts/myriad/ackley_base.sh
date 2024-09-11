@@ -30,4 +30,4 @@ date
 which pip
 which python
 
-python /home/ucabzc9/Scratch/nest_bq/toy.py $JOB_PARAMS
+python /home/ucabzc9/Scratch/nest_bq/BO.py $JOB_PARAMS

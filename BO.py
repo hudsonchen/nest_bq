@@ -167,7 +167,7 @@ def negative_ei_look_ahead_mc(args, rng_key, x, posterior, lower_bound, upper_bo
                                                              np.vstack([y, sample]), 
                                                              y_best, num_samples, rng_key)
         bounds = [(lower_bound[0], upper_bound[0])]  # Repeat bounds for each parameter dimension
-        result = scipy.optimize.minimize(negative_utility_fn, init_x.squeeze(), method = 'L-BFGS-B', 
+        result = scipy.optimize.minimize(negative_utility_fn, init_x.squeeze(), method = 'Nelder-Mead', 
                                          bounds=bounds, options={'maxiter': 5})
         inner_expectation[s,:] = result.fun
 
