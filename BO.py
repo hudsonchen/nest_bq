@@ -4,7 +4,6 @@ from jax import config
 import jax.numpy as np
 import scipy
 import numpy as np
-import jaxopt
 import matplotlib
 import matplotlib.pyplot as plt
 import tensorflow_probability.substrates.jax as tfp
