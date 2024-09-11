@@ -17,12 +17,30 @@ import gpjax as gpx
 import warnings
 from tqdm import tqdm
 import shutil
+import pwd
 
 from utils.kernel_means import *
 from datasets.bo_datasets import *
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*_register_pytree_node.*")
 
 cols = matplotlib.rcParams["axes.prop_cycle"].by_key()["color"]
+
+
+if pwd.getpwuid(os.getuid())[0] == 'hudsonchen':
+    os.chdir("/Users/hudsonchen/research/fx_bayesian_quaduature/nest_bq")
+elif pwd.getpwuid(os.getuid())[0] == 'zongchen':
+    # os.chdir("/home/zongchen/CBQ")
+    os.chdir("/home/zongchen/nest_bq")
+    # os.environ[
+    #     "XLA_FLAGS"
+    # ] = "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
+    # os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    # os.environ["MKL_NUM_THREADS"] = "1"
+    # os.environ["OMP_NUM_THREAD"] = "1"
+elif pwd.getpwuid(os.getuid())[0] == 'ucabzc9':
+    os.chdir("/home/ucabzc9/Scratch/nest_bq")
+else:
+    pass
 
 
 def get_config():
@@ -282,7 +300,7 @@ def plot_bayes_opt(
     return
 
 def main(args):
-    bo_iters = 30
+    bo_iters = 100
     initial_sample_num = 5
     rng_key = np.random.default_rng(args.seed)
 
