@@ -12,7 +12,6 @@ import os
 import time
 import argparse
 config.update("jax_enable_x64", True)
-import gpjax as gpx
 import warnings
 from tqdm import tqdm
 import shutil
@@ -165,7 +164,7 @@ def negative_ei_look_ahead_mc(args, rng_key, x, posterior, lower_bound, upper_bo
                                                              np.vstack([X, x]), 
                                                              np.vstack([y, sample]), 
                                                              y_best, num_samples, rng_key)
-        bounds = [(lower_bound[0], upper_bound[0])]  # Repeat bounds for each parameter dimension
+        bounds = tuple(zip(lower_bound, upper_bound))  # Repeat bounds for each parameter dimension
         result = scipy.optimize.minimize(negative_utility_fn, init_x.squeeze(), method = 'Nelder-Mead', 
                                          bounds=bounds, options={'maxiter': 5})
         inner_expectation[s,:] = result.fun
@@ -190,7 +189,7 @@ def negative_ei_look_ahead_kq(args, rng_key, x, posterior, lower_bound, upper_bo
                                                              np.vstack([y, sample]), 
                                                              y_best, num_samples, rng_key)
         
-        bounds = [(lower_bound[0], upper_bound[0])]  # Repeat bounds for each parameter dimension
+        bounds = tuple(zip(lower_bound, upper_bound))  # Repeat bounds for each parameter dimension
         result = scipy.optimize.minimize(negative_utility_fn, init_x.squeeze(), method = 'Nelder-Mead', 
                                          bounds=bounds, options={'maxiter': 5})
         inner_expectation[s] = result.fun
@@ -231,7 +230,7 @@ def optimise_sample(args, rng_key, posterior, X, y, lower_bound, upper_bound, y_
     else:
         raise ValueError("Utility function not recognised")
     
-    bounds = [(lower_bound[0], upper_bound[0])] * len(initial_conditions[0])  # Repeat bounds for each parameter dimension
+    bounds = tuple(zip(lower_bound, upper_bound))  # Repeat bounds for each parameter dimension
 
     params_list = []
     fun_vals_list = []
@@ -319,6 +318,11 @@ def main(args):
         get_data_fn = partial(load_dropwave)
         lower_bound, upper_bound = np.array([-5.12]), np.array([5.12])
         ground_truth_best_y = 1.0
+    elif args.datasets == 'branin':
+        args.dim = dim = 2
+        get_data_fn = partial(load_branin)
+        lower_bound, upper_bound = np.array([-5.0, 0.0]), np.array([10.0, 15.0])
+        ground_truth_best_y = 0.397887
     else:
         raise ValueError("Dataset not recognised")
     X = rng_key.uniform(lower_bound, upper_bound, (initial_sample_num, dim))

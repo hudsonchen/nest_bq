@@ -1,7 +1,7 @@
 import torch
 import jax
 import numpy as np
-from botorch.test_functions import Ackley, DropWave
+from botorch.test_functions import Ackley, DropWave, Branin
 from botorch.utils.datasets import FixedNoiseDataset
 
 
@@ -33,3 +33,13 @@ def load_dropwave(x):
     y = np.array(y_torch.numpy())
     return y[:, None]
 
+
+def load_branin(x):
+    """
+    Generates a dataset using the Branin function and converts the dataset into JAX NumPy arrays.
+    """
+    x_torch = torch.tensor(np.array(x)) 
+    branin = Branin() 
+    y_torch = -branin(x_torch) # Take the negative of the Branin function to maximize it
+    y = np.array(y_torch.numpy())
+    return y[:, None]
