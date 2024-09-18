@@ -1,4 +1,6 @@
 from typing import List,Tuple 
+import os
+os.environ['JAX_PLATFORM_NAME'] = 'cpu'
 import jax
 from jax import config
 import jax.numpy as np
@@ -8,7 +10,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 import tensorflow_probability.substrates.jax as tfp
 from functools import partial
-import os
 import time
 import argparse
 config.update("jax_enable_x64", True)
@@ -221,9 +222,9 @@ def negative_ei_look_ahead_mlmc(args, rng_key, posterior, lower_bound, upper_bou
                 outer_increase[ind] = (np.maximum(outer_samples - y_best, 0) - inner_expectation).max()
             x_star += x_grid[np.argmax(outer_increase), :]
         else:
-            x_grid_1 = rng_key.uniform(lower_bound, upper_bound, (10, dim))
+            x_grid_1 = rng_key.uniform(lower_bound, upper_bound, (10, dim)) / 3 + x_star
             outer_increase_1 = np.zeros((10, ))
-            for x in x_grid_1:
+            for ind, x in enumerate(x_grid_1):
                 inner_samples_num = base * (2 ** l)
                 outer_samples_num = base * (2 ** (level - l))
                 mu, var = outer_sampler(X_test=x[None, :])
@@ -242,10 +243,10 @@ def negative_ei_look_ahead_mlmc(args, rng_key, posterior, lower_bound, upper_bou
                     pause = True
                 outer_increase_1[ind] = (np.maximum(outer_samples - y_best, 0) - inner_expectation).max()
 
-            x_grid_2 = rng_key.uniform(lower_bound, upper_bound, (10, dim))
+            x_grid_2 = rng_key.uniform(lower_bound, upper_bound, (10, dim)) / 3 + x_star
             outer_increase_2 = np.zeros((10, ))
 
-            for x in x_grid_2:
+            for ind, x in enumerate(x_grid_2):
                 inner_samples_num = base * (2 ** (l - 1))
                 outer_samples_num = base * (2 ** (level - l))
                 mu, var = outer_sampler(X_test=x[None, :])
@@ -353,7 +354,12 @@ def optimise_sample(args, rng_key, posterior, X, y, lower_bound, upper_bound, y_
     #     fun_vals_list.append(result.fun)  # Function value at the minimum
 
     grid_x = rng_key.uniform(lower_bound, upper_bound, (10, dim))
-    utility = np.array([negative_utility_fn(x_prime) for x_prime in grid_x])
+    # utility = np.array([negative_utility_fn(x_prime) for x_prime in grid_x])
+    from joblib import Parallel, delayed
+
+    # Parallelize the computation using joblib
+    utility = np.array(Parallel(n_jobs=-1)(delayed(negative_utility_fn)(x_prime) for x_prime in grid_x))
+
     max_utility = np.min(utility)
     x_star = grid_x[np.argmin(utility)]
     # x_star = np.array(params_list)[np.argmin(np.array(fun_vals_list))]
@@ -460,8 +466,8 @@ def main(args):
         x_star = optimise_sample(args, rng_key, posterior, X, y, 
                                  lower_bound, upper_bound, y_best, num_samples, num_initial_sample_points=1)
 
-        # if (iter + len(y_init)) % 10 == 0:
-        #     plot_bayes_opt(args, rng_key, get_data_fn, posterior, X, y, x_star, lower_bound, upper_bound,)
+        if (iter + len(y_init)) % 1 == 0 and args.dim == 1:
+            plot_bayes_opt(args, rng_key, get_data_fn, posterior, X, y, x_star, lower_bound, upper_bound,)
 
         # Evaluate the black-box function at the best point observed so far, and add it to the dataset
         y_star = get_data_fn(x_star[None, :])

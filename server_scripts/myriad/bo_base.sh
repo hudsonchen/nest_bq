@@ -1,5 +1,5 @@
 #$ -l mem=15G
-#$ -pe smp 32
+#$ -pe smp 16
 #$ -l h_rt=1:0:0
 #$ -R y
 #$ -S /bin/bash

@@ -267,7 +267,6 @@ def KQ_Matern_12_Uniform(X, f_X, a, b):
     \int f(x) U(x| a , b) dx
 
     Args:
-        rng_key: random number generator
         X: shape (N, D)
         f_X: shape (N, )
         a: float
@@ -291,8 +290,6 @@ def KQ_Matern_12_Uniform(X, f_X, a, b):
     pause = True
     return I_NKQ.squeeze()
 
-
-
 def KQ_Matern_12_Uniform_Vectorized(X, f_X, a, b):
     """
     KQ, Vectorized over the first indice of X and f_X.
@@ -308,5 +305,53 @@ def KQ_Matern_12_Uniform_Vectorized(X, f_X, a, b):
         I_NKQ: (T, )
         I_NKQ_std: (T, )
     """
-    vmap_func = jax.vmap(KQ_Matern_12_Uniform, in_axes=(None, 0, 0, None, None))
+    vmap_func = jax.vmap(KQ_Matern_12_Uniform, in_axes=(0, 0, None, None))
     return vmap_func(X, f_X, a, b)
+
+
+def KQ_log_RBF_log_Gaussian(X, f_X, mu, std):
+    """
+    KQ, not Vectorized. Only works for one-d, D = 1
+
+    \int f(x, theta) log N(x|mu_X_theta, var_X_theta) dx
+
+    Args:
+        rng_key: random number generator
+        X: shape (N, 1)
+        f_X: shape (N, )
+        mu: float
+        std: float
+    Returns:
+        I_NKQ: float
+    """
+    N, D = X.shape[0], X.shape[1]
+    eps = 1e-6
+
+    # l = 1.0
+    l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
+    A = 1.0
+
+    K = A * my_log_RBF(X, X, l)
+    K_inv = jnp.linalg.inv(K + eps * jnp.eye(N))
+    phi = A * kme_log_normal_log_RBF(mu, std, X, l)
+    I_NKQ = phi.T @ K_inv @ f_X
+    return I_NKQ
+
+
+def KQ_log_RBF_log_Gaussian_Vectorized(X, f_X, mu, std):
+    """
+    KQ, not Vectorized. Only works for one-d, D = 1
+
+    \int f(x, theta) log N(x|mu_X_theta, var_X_theta) dx
+
+    Args:
+        rng_key: random number generator
+        X: shape (T, N, 1)
+        f_X: shape (T, N)
+        mu: (T,)
+        std: (T, )
+    Returns:
+        I_NKQ: (T, )
+    """
+    vmap_func = jax.vmap(KQ_log_RBF_log_Gaussian, in_axes=(0, 0, 0, 0))
+    return vmap_func(X, f_X, mu, std)

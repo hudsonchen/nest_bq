@@ -481,7 +481,7 @@ def kme_double_RBF_Gaussian(mu, Sigma, l):
 
 
 @jax.jit
-def log_normal_RBF(x, y, l, d_log_px, d_log_py):
+def my_log_RBF(x, y, l):
     """
     Log normal RBF kernel.
 
@@ -497,74 +497,24 @@ def log_normal_RBF(x, y, l, d_log_px, d_log_py):
 
 
 @jax.jit
-def kme_log_normal_RBF(y, l, a, b):
+def kme_log_normal_log_RBF(mu, std, y, l):
     """
     The implementation of the kernel mean embedding of the log RBF kernel with log normal distribution.
 
     Args:
         y: (M, D)
-        a: mean for the log normal distribution, scalar
-        b: std for the log normal distribution, scalar
-        l: scalar
+        l: kernel bandwidth scalar
+        mu: mean for the log normal distribution, scalar
+        std: std for the log normal distribution, scalar
+        
 
     Returns:
         kernel mean embedding: (M, )
     """
-    part1 = jnp.exp(-(a ** 2 + jnp.log(y) ** 2) / (2 * (b ** 2 + l ** 2)))
-    part2 = jnp.power(y, a / (b ** 2 + l ** 2))
-    part3 = b * jnp.sqrt(b ** (-2) + l ** (-2))
+    part1 = jnp.exp(-(mu ** 2 + jnp.log(y) ** 2) / (2 * (std ** 2 + l ** 2)))
+    part2 = jnp.power(y, mu / (std ** 2 + l ** 2))
+    part3 = std * jnp.sqrt(std ** (-2) + l ** (-2))
     return part1 * part2 / part3
-
-
-@jax.jit
-def kme_double_log_normal_RBF(l, a, b):
-    """
-    The implementation of the initial error of the log RBF kernel with log normal distribution.
-
-    Args:
-        a: mean for the log normal distribution, scalar
-        b: std for the log normal distribution, scalar
-        l: scalar
-
-    Returns:
-        initial error: scalar
-    """
-    dummy = b ** 2 * jnp.sqrt(b ** (-2) + l ** (-2)) * jnp.sqrt(b ** (-2) + 1. / (b ** 2 + l ** 2))
-    return 1. / dummy
-
-
-@jax.jit
-def nystrom_inv(matrix, eps=1e-6):
-    """
-    Nystrom approximation of the inverse of a matrix.
-
-    Args:
-        matrix: (N, N)
-        eps: scalar
-
-    Returns:
-        approx_inv: (N, N)
-    """
-    rng_key = jax.random.PRNGKey(int(time.time()))
-    n = matrix.shape[0]
-    m = int(n / 2)
-    matrix = matrix - eps * jnp.eye(n)
-    matrix_mean = jnp.mean(matrix)
-    matrix = matrix / matrix_mean  # Scale the matrix to avoid numerical issues
-
-    # Randomly select m columns
-    idx = jax.random.choice(rng_key, n, (m, ), replace=False)
-
-    W = matrix[idx, :][:, idx]
-    U, s, V = jnp.linalg.svd(W)
-
-    U_recon = jnp.sqrt(m / n) * matrix[:, idx] @ U @ jnp.diag(1. / s)
-    S_recon = s * (n / m)
-
-    Sigma_inv = (1. / eps) * jnp.eye(n)
-    approx_inv = Sigma_inv - Sigma_inv @ U_recon @ jnp.linalg.inv(jnp.diag(1. / S_recon) + U_recon.T @ Sigma_inv @ U_recon) @ U_recon.T @ Sigma_inv
-    approx_inv = approx_inv / matrix_mean  # Don't forget the scaling!
-    return approx_inv
 
 
 def main():
