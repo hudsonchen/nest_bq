@@ -97,14 +97,14 @@ def run(args, N, T, rng_key):
         I_theta_KQ = KQ_RBF_Uniform_Vectorized(X[:, :, None], g_X, a, b)
         # I_theta_KQ = KQ_RBF_Gaussian_Vectorized(X[:, :, None], g_X, mu, var)
     elif args.kernel_x == "matern":
-        I_theta_KQ = KQ_Matern_Uniform_Vectorized(X[:, :, None], g_X, a, b)
+        I_theta_KQ = KQ_Matern_32_Uniform_Vectorized(X[:, :, None], g_X, a, b)
 
     f_I_theta_KQ = f(I_theta_KQ)
     a, b = 0, 1
     if args.kernel_theta == "rbf":
         I_NKQ = KQ_RBF_Uniform(Theta, f_I_theta_KQ, a, b)
     elif args.kernel_theta == "matern":
-        I_NKQ = KQ_Matern_Uniform(Theta, f_I_theta_KQ, a, b)
+        I_NKQ = KQ_Matern_32_Uniform(Theta, f_I_theta_KQ, a, b)
     
     # print(f"Nested kernel quadrature: {I_NKQ}")
     pause = True

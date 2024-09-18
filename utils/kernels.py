@@ -3,6 +3,7 @@ import jax
 from tensorflow_probability.substrates import jax as tfp
 from functools import partial
 from jax.scipy.stats import norm
+from jax.scipy.special import erf, erfc
 import time
 
 
@@ -99,9 +100,9 @@ def stein_Gaussian(x, y, l, d_log_px, d_log_py):
 
 
 @jax.jit
-def my_Matern(x, y, l):
+def my_Matern_32(x, y, l):
     """
-    Matern kernel.
+    Matern three halves kernel.
 
     Args:
         x: (N, D)
@@ -116,10 +117,28 @@ def my_Matern(x, y, l):
     return K
 
 
-# @jax.jit
-def dx_Matern(x, y, l):
+@jax.jit
+def my_Matern_12(x, y, l):
     """
-    Matern kernel derivative with respect to the first input.
+    Matern three halves kernel.
+
+    Args:
+        x: (N, D)
+        y: (M, D)
+        l: scalar
+
+    Returns:
+        kernel matrix: (N, M)
+    """
+    kernel = tfp.math.psd_kernels.MaternOneHalf(amplitude=1., length_scale=l)
+    K = kernel.matrix(x, y)
+    return K
+
+
+# @jax.jit
+def dx_Matern_32(x, y, l):
+    """
+    Matern three halves kernel derivative with respect to the first input.
 
     Args:
         x: (N, D)
@@ -141,7 +160,7 @@ def dx_Matern(x, y, l):
 
 
 # @jax.jit
-def dy_Matern(x, y, l):
+def dy_Matern_32(x, y, l):
     """
     Matern kernel derivative with respect to the second input.
 
@@ -165,7 +184,7 @@ def dy_Matern(x, y, l):
 
 
 # @jax.jit
-def dxdy_Matern(x, y, l):
+def dxdy_Matern_32(x, y, l):
     """
     The inner product of dx_Matern and dy_Matern
     A fully vecotrized implementation.
@@ -257,9 +276,9 @@ def dxdy_Laplace(x, y, l):
 
 
 @jax.jit
-def kme_Matern_Gaussian(l, y):
+def kme_Matern_32_Gaussian(l, y):
     """
-    The implementation of the kernel mean embedding of the Matern kernel with Gaussian distribution
+    The implementation of the kernel mean embedding of the Matern three halves kernel with Gaussian distribution
     Only in one dimension, and the Gaussian distribution is N(0, 1)
     
     Args:
@@ -292,9 +311,9 @@ def kme_Matern_Gaussian(l, y):
     return final
 
 @jax.jit
-def kme_Matern_Uniform(a, b, l, y):
+def kme_Matern_32_Uniform(a, b, l, y):
     """
-    The implementation of the kernel mean embedding of the Matern kernel with Uniform distribution U[a,b]
+    The implementation of the kernel mean embedding of the Matern three halves kernel with Uniform distribution U[a,b]
     Only in one dimension, D = 1
     
     Args:
@@ -316,6 +335,45 @@ def kme_Matern_Uniform(a, b, l, y):
 
     kme = term1 + term2
     return kme
+
+
+@jax.jit
+def kme_Matern_12_Gaussian(l, y):
+    """
+    The implementation of the kernel mean embedding of the Matern one half kernel with Gaussian distribution
+    Only in one dimension, and the Gaussian distribution is N(0, 1)
+    
+    Args:
+        y: (M, D)
+        l: scalar
+
+    Returns:
+        kernel mean embedding: (M, )
+    """
+    part1 = jnp.exp((1 - 2 * l * y) / (2 * l ** 2)) * (1 + erf((-1 + l * y) / (jnp.sqrt(2) * l)))
+    part2 = jnp.exp((1 + 2 * l * y) / (2 * l ** 2)) * erfc((1 / l + y) / jnp.sqrt(2))
+
+    return (part1 + part2) / 2
+
+@jax.jit
+def kme_Matern_12_Uniform(a, b, l, y):
+    """
+    The implementation of the kernel mean embedding of the Matern one half kernel with Uniform distribution U[a,b]
+    Only in one dimension, D = 1
+    
+    Args:
+        y: (M, D)
+        l: scalar
+
+    Returns:
+        kernel mean embedding: (M, )
+    """
+    r = b - a
+    term1 = (l - jnp.exp((a - y) / l) * l) / r
+    term2 = (l - jnp.exp((y - b) / l) * l) / r
+    kme = term1 + term2
+    return kme
+
 
 @jax.jit
 def kme_RBF_Gaussian(mu, Sigma, l, y):

@@ -106,7 +106,7 @@ def KQ_RBF_Uniform_Vectorized(X, f_X, a, b):
     return vmap_func(X, f_X, a, b)
 
 
-def KQ_Matern_Gaussian(X, f_X):
+def KQ_Matern_32_Gaussian(X, f_X):
     """
     KQ, not Vectorized over theta.
     Only works for one-d and for standard normal distribution
@@ -129,9 +129,9 @@ def KQ_Matern_Gaussian(X, f_X):
     l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
     # l = 1.
 
-    K = A * my_Matern(X, X, l)
+    K = A * my_Matern_32(X, X, l)
     K_inv = jnp.linalg.inv(K + eps * jnp.eye(N))
-    phi = A * kme_Matern_Gaussian(l, X)
+    phi = A * kme_Matern_32_Gaussian(l, X)
     # varphi = A
 
     I_NKQ = phi.T @ K_inv @ f_X
@@ -139,7 +139,7 @@ def KQ_Matern_Gaussian(X, f_X):
     return I_NKQ.squeeze()
 
 
-def KQ_Matern_Gaussian_Vectorized(X, f_X):
+def KQ_Matern_32_Gaussian_Vectorized(X, f_X):
     """
     KQ, Vectorized over the first indice of X and f_X.
     Only works for one-d and for standard normal distribution
@@ -152,11 +152,61 @@ def KQ_Matern_Gaussian_Vectorized(X, f_X):
         I_NKQ: (T, )
         I_NKQ_std: (T, )
     """
-    vmap_func = jax.vmap(KQ_Matern_Gaussian, in_axes=(None, 0, 0))
+    vmap_func = jax.vmap(KQ_Matern_32_Gaussian, in_axes=(None, 0, 0))
     return vmap_func(X, f_X)
 
 
-def KQ_Matern_Uniform(X, f_X, a, b):
+def KQ_Matern_12_Gaussian(X, f_X):
+    """
+    KQ, not Vectorized over theta.
+    Only works for one-d and for standard normal distribution
+
+    \int f(x) N(x|0,1) dx
+
+    Args:
+        rng_key: random number generator
+        X: shape (N, D)
+        f_X: shape (N, )
+        a: float
+        b: float
+    Returns:
+        I_NKQ: float
+    """
+    N, D = X.shape[0], X.shape[1]
+    eps = 1e-6
+
+    A = 1.
+    l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
+    # l = 1.
+
+    K = A * my_Matern_12(X, X, l)
+    K_inv = jnp.linalg.inv(K + eps * jnp.eye(N))
+    phi = A * kme_Matern_12_Gaussian(l, X)
+    # varphi = A
+
+    I_NKQ = phi.T @ K_inv @ f_X
+    pause = True
+    return I_NKQ.squeeze()
+
+
+def KQ_Matern_12_Gaussian_Vectorized(X, f_X):
+    """
+    KQ, Vectorized over the first indice of X and f_X.
+    Only works for one-d and for standard normal distribution
+    Actually, every integral can be written as integration wrt to a standard normal distribution
+    Args:
+        rng_key: random number generator
+        X: shape (T, N, D)
+        f_X: shape (T, N)
+    Returns:
+        I_NKQ: (T, )
+        I_NKQ_std: (T, )
+    """
+    vmap_func = jax.vmap(KQ_Matern_12_Gaussian, in_axes=(None, 0, 0))
+    return vmap_func(X, f_X)
+
+
+def KQ_Matern_32_Uniform(X, f_X, a, b):
     """
     KQ, not Vectorized over theta.
     Only works for one-d, D = 1
@@ -179,9 +229,9 @@ def KQ_Matern_Uniform(X, f_X, a, b):
     l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
     # l = 1.
 
-    K = A * my_Matern(X, X, l)
+    K = A * my_Matern_32(X, X, l)
     K_inv = jnp.linalg.inv(K + eps * jnp.eye(N))
-    phi = A * kme_Matern_Uniform(a, b, l, X)
+    phi = A * kme_Matern_32_Uniform(a, b, l, X)
     # varphi = A
 
     I_NKQ = phi.T @ K_inv @ f_X
@@ -190,7 +240,7 @@ def KQ_Matern_Uniform(X, f_X, a, b):
 
 
 
-def KQ_Matern_Uniform_Vectorized(X, f_X, a, b):
+def KQ_Matern_32_Uniform_Vectorized(X, f_X, a, b):
     """
     KQ, Vectorized over the first indice of X and f_X.
     Only works for one-d D = 1 and for standard normal distribution
@@ -205,5 +255,58 @@ def KQ_Matern_Uniform_Vectorized(X, f_X, a, b):
         I_NKQ: (T, )
         I_NKQ_std: (T, )
     """
-    vmap_func = jax.vmap(KQ_Matern_Uniform, in_axes=(None, 0, 0, None, None))
+    vmap_func = jax.vmap(KQ_Matern_32_Uniform, in_axes=(None, 0, 0, None, None))
+    return vmap_func(X, f_X, a, b)
+
+
+def KQ_Matern_12_Uniform(X, f_X, a, b):
+    """
+    KQ, not Vectorized over theta.
+    Only works for one-d, D = 1
+
+    \int f(x) U(x| a , b) dx
+
+    Args:
+        rng_key: random number generator
+        X: shape (N, D)
+        f_X: shape (N, )
+        a: float
+        b: float
+    Returns:
+        I_NKQ: float
+    """
+    N, D = X.shape[0], X.shape[1]
+    eps = 1e-6
+
+    A = 1.
+    l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
+    # l = 1.
+
+    K = A * my_Matern_12(X, X, l)
+    K_inv = jnp.linalg.inv(K + eps * jnp.eye(N))
+    phi = A * kme_Matern_12_Uniform(a, b, l, X)
+    # varphi = A
+
+    I_NKQ = phi.T @ K_inv @ f_X
+    pause = True
+    return I_NKQ.squeeze()
+
+
+
+def KQ_Matern_12_Uniform_Vectorized(X, f_X, a, b):
+    """
+    KQ, Vectorized over the first indice of X and f_X.
+    Only works for one-d D = 1 and for standard normal distribution
+
+    Args:
+        rng_key: random number generator
+        X: shape (T, N, D)
+        f_X: shape (T, N)
+        a: float
+        b: float
+    Returns:
+        I_NKQ: (T, )
+        I_NKQ_std: (T, )
+    """
+    vmap_func = jax.vmap(KQ_Matern_12_Uniform, in_axes=(None, 0, 0, None, None))
     return vmap_func(X, f_X, a, b)

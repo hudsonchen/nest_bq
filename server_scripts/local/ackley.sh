@@ -1,18 +1,19 @@
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel rbf --seed 0
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel matern --seed 0
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mc --dim 2 --N 25 --dataset ackley --kernel rbf --seed 0
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel rbf --seed 1
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel matern --seed 1
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mc --dim 2 --N 25 --dataset ackley --kernel rbf --seed 1
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel matern --seed 2
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel rbf --seed 2
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mc --dim 2 --N 25 --dataset ackley --kernel rbf --seed 2
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel rbf --seed 4
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel matern --seed 4
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mc --dim 2 --N 25 --dataset ackley --kernel rbf --seed 4
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel rbf --seed 5
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel matern --seed 5
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mc --dim 2 --N 25 --dataset ackley --kernel rbf --seed 5
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel matern --seed 6
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel rbf --seed 6
-/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mc --dim 2 --N 25 --dataset ackley --kernel rbf --seed 6
+# /home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel matern --seed 10
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mc --dim 2 --N 25 --dataset ackley --kernel matern --seed 10
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mlmc --dim 2 --N 25 --dataset ackley --kernel matern --seed 10
+
+# /home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel matern --seed 11
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mc --dim 2 --N 25 --dataset ackley --kernel matern --seed 11
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mlmc --dim 2 --N 25 --dataset ackley --kernel matern --seed 11
+
+# /home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel matern --seed 12
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mc --dim 2 --N 25 --dataset ackley --kernel matern --seed 12
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mlmc --dim 2 --N 25 --dataset ackley --kernel matern --seed 12
+
+# /home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel matern --seed 13
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mc --dim 2 --N 25 --dataset ackley --kernel matern --seed 13
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mlmc --dim 2 --N 25 --dataset ackley --kernel matern --seed 13
+
+# /home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_kq --dim 2 --N 25 --dataset ackley --kernel matern --seed 14
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mc --dim 2 --N 25 --dataset ackley --kernel matern --seed 14
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python BO.py --utility EI_look_ahead_mlmc --dim 2 --N 25 --dataset ackley --kernel matern --seed 14

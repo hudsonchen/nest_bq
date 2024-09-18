@@ -48,7 +48,7 @@ def get_config():
     parser.add_argument('--save_path', type=str, default='./')
     parser.add_argument('--utility', type=str)
     parser.add_argument('--datasets', type=str)
-    parser.add_argument('--kernel', type=str, default='rbf')
+    parser.add_argument('--kernel', type=str, default='matern')
     parser.add_argument('--dim', type=int, default=2)
     parser.add_argument('--N', type=int, default=20)
     args = parser.parse_args()
@@ -107,9 +107,10 @@ def gp_posterior(X_train, y_train, X_test, kernel):
     
     # Compute the inverse of K
     K_inv = np.linalg.inv(K)
-    
+    y_train_mean = np.mean(y_train)
+
     # Compute the posterior mean
-    mu_s = K_s.T.dot(K_inv).dot(y_train)
+    mu_s = K_s.T.dot(K_inv).dot(y_train - y_train_mean) + y_train_mean
     
     # Compute the posterior variance
     cov_s = K_ss - K_s.T.dot(K_inv).dot(K_s)
@@ -126,7 +127,8 @@ def negative_ei_kq(args, x, posterior, X, y, y_best, num_samples, rng_key):
     if args.kernel == 'rbf':
         ei = KQ_RBF_Gaussian(jnp.array(samples[:, None]), jnp.array(increases.squeeze()), jnp.array(mu[0]), jnp.array(var))
     elif args.kernel == 'matern':
-        ei = KQ_Matern_Gaussian(jnp.array((samples - mu[0]) / np.sqrt(var[0]))[:, None], jnp.array(increases.squeeze()))
+        # ei = KQ_Matern_12_Gaussian(jnp.array((samples - mu[0]) / np.sqrt(var[0]))[:, None], jnp.array(increases.squeeze()))
+        ei = KQ_Matern_12_Uniform(jnp.array(scipy.stats.norm.cdf( (samples - mu[0]) / np.sqrt(var[0]) ))[:, None], jnp.array(increases.squeeze()), 0., 1.)
     return -ei.squeeze()
 
 
@@ -159,19 +161,112 @@ def negative_ei_look_ahead_mc(args, rng_key, x, posterior, lower_bound, upper_bo
 
     inner_expectation = np.zeros((num_samples, 1))
     for s, sample in enumerate(outer_samples):
-        init_x = rng_key.uniform(lower_bound, upper_bound, (1, dim))
+        # init_x = rng_key.uniform(lower_bound, upper_bound, (1, dim))
         negative_utility_fn = lambda x_prime: negative_ei_mc(args, x_prime, posterior, 
                                                              np.vstack([X, x]), 
                                                              np.vstack([y, sample]), 
                                                              y_best, num_samples, rng_key)
-        bounds = tuple(zip(lower_bound, upper_bound))  # Repeat bounds for each parameter dimension
-        result = scipy.optimize.minimize(negative_utility_fn, init_x.squeeze(), method = 'Nelder-Mead', 
-                                         bounds=bounds, options={'maxiter': 5})
-        inner_expectation[s,:] = result.fun
+        # bounds = tuple(zip(lower_bound, upper_bound))  # Repeat bounds for each parameter dimension
+        # result = scipy.optimize.minimize(negative_utility_fn, init_x.squeeze(), method = 'Nelder-Mead', 
+        #                                  bounds=bounds, options={'maxiter': 5})
+        # inner_expectation[s,:] = result.fun
+
+        # Debug code
+        grid_x = rng_key.uniform(lower_bound, upper_bound, (10, dim))
+        utility = np.array([negative_utility_fn(x_prime) for x_prime in grid_x])
+        max_utility = np.min(utility)
+        # Debug code
+
+        # inner_expectation[s] = result.fun
+        inner_expectation[s] = max_utility
+        pause = True
 
     increases = np.maximum(outer_samples - y_best, 0) + inner_expectation
     ei = np.mean(increases)
     return -ei.squeeze()
+
+
+def negative_ei_look_ahead_mlmc(args, rng_key, posterior, lower_bound, upper_bound, X, y, 
+                                y_best, num_samples):
+    outer_sampler = partial(posterior, X_train=X, y_train=y)
+    
+    dim = X.shape[1]
+    level = 3
+    base = int(num_samples / (2**0 + 2**1 + 2**2))
+
+    x_star = np.zeros((dim,))
+
+    for l in range(level):
+        if l == 0:
+            x_grid = rng_key.uniform(lower_bound, upper_bound, (10, dim))
+            outer_increase = np.zeros((10, ))
+            for ind, x in enumerate(x_grid):
+                inner_samples_num = base * (2 ** l)
+                outer_samples_num = base * (2 ** (level - l))
+                mu, var = outer_sampler(X_test=x[None, :])
+                outer_samples = rng_key.normal(mu.squeeze(), np.sqrt(var.squeeze()), outer_samples_num)
+
+                inner_expectation = np.zeros((outer_samples_num,))
+                for s, sample in enumerate(outer_samples):
+                    # init_x = rng_key.uniform(lower_bound, upper_bound, (1, dim))
+                    negative_utility_fn = lambda x_prime: negative_ei_mc(args, x_prime, posterior, 
+                                                                        np.vstack([X, x]), 
+                                                                        np.vstack([y, sample]), 
+                                                                        y_best, inner_samples_num, rng_key)
+                    grid_x = rng_key.uniform(lower_bound, upper_bound, (10, dim))
+                    utility = np.array([negative_utility_fn(x_prime) for x_prime in grid_x])
+                    max_utility = np.min(utility)
+                    inner_expectation[s] = max_utility
+                    pause = True
+                outer_increase[ind] = (np.maximum(outer_samples - y_best, 0) - inner_expectation).max()
+            x_star += x_grid[np.argmax(outer_increase), :]
+        else:
+            x_grid_1 = rng_key.uniform(lower_bound, upper_bound, (10, dim))
+            outer_increase_1 = np.zeros((10, ))
+            for x in x_grid_1:
+                inner_samples_num = base * (2 ** l)
+                outer_samples_num = base * (2 ** (level - l))
+                mu, var = outer_sampler(X_test=x[None, :])
+                outer_samples = rng_key.normal(mu.squeeze(), np.sqrt(var.squeeze()), outer_samples_num)
+
+                inner_expectation = np.zeros((outer_samples_num,))
+                for s, sample in enumerate(outer_samples):
+                    negative_utility_fn = lambda x_prime: negative_ei_mc(args, x_prime, posterior, 
+                                                                        np.vstack([X, x]), 
+                                                                        np.vstack([y, sample]), 
+                                                                        y_best, inner_samples_num, rng_key)
+                    grid_x = rng_key.uniform(lower_bound, upper_bound, (10, dim))
+                    utility = np.array([negative_utility_fn(x_prime) for x_prime in grid_x])
+                    max_utility = np.min(utility)
+                    inner_expectation[s] = max_utility
+                    pause = True
+                outer_increase_1[ind] = (np.maximum(outer_samples - y_best, 0) - inner_expectation).max()
+
+            x_grid_2 = rng_key.uniform(lower_bound, upper_bound, (10, dim))
+            outer_increase_2 = np.zeros((10, ))
+
+            for x in x_grid_2:
+                inner_samples_num = base * (2 ** (l - 1))
+                outer_samples_num = base * (2 ** (level - l))
+                mu, var = outer_sampler(X_test=x[None, :])
+                outer_samples = rng_key.normal(mu.squeeze(), np.sqrt(var.squeeze()), outer_samples_num)
+
+                inner_expectation = np.zeros((outer_samples_num, ))
+                for s, sample in enumerate(outer_samples):
+                    # init_x = rng_key.uniform(lower_bound, upper_bound, (1, dim))
+                    negative_utility_fn = lambda x_prime: negative_ei_mc(args, x_prime, posterior, 
+                                                                        np.vstack([X, x]), 
+                                                                        np.vstack([y, sample]), 
+                                                                        y_best, inner_samples_num, rng_key)
+                    grid_x = rng_key.uniform(lower_bound, upper_bound, (10, dim))
+                    utility = np.array([negative_utility_fn(x_prime) for x_prime in grid_x])
+                    max_utility = np.min(utility)
+                    inner_expectation[s] = max_utility
+                outer_increase_2[ind] = (np.maximum(outer_samples - y_best, 0) - inner_expectation).max()
+            
+            x_star += x_grid_1[np.argmax(outer_increase_1), :] - x_grid_2[np.argmax(outer_increase_2), :]
+            
+    return x_star
 
 
 def negative_ei_look_ahead_kq(args, rng_key, x, posterior, lower_bound, upper_bound, X, y, 
@@ -183,22 +278,33 @@ def negative_ei_look_ahead_kq(args, rng_key, x, posterior, lower_bound, upper_bo
     
     inner_expectation = np.zeros((num_samples,))
     for s, sample in enumerate(outer_samples):
-        init_x = rng_key.uniform(lower_bound, upper_bound, (1, dim))
+        # init_x = rng_key.uniform(lower_bound, upper_bound, (1, dim))
         negative_utility_fn = lambda x_prime: negative_ei_kq(args, x_prime, posterior, 
                                                              np.vstack([X, x]), 
                                                              np.vstack([y, sample]), 
                                                              y_best, num_samples, rng_key)
         
-        bounds = tuple(zip(lower_bound, upper_bound))  # Repeat bounds for each parameter dimension
-        result = scipy.optimize.minimize(negative_utility_fn, init_x.squeeze(), method = 'Nelder-Mead', 
-                                         bounds=bounds, options={'maxiter': 5})
-        inner_expectation[s] = result.fun
+        # bounds = tuple(zip(lower_bound, upper_bound))  # Repeat bounds for each parameter dimension
+        # result = scipy.optimize.minimize(negative_utility_fn, init_x.squeeze(), method = 'Nelder-Mead', 
+        #                                  bounds=bounds, options={'maxiter': 5})
+        
+
+        # Debug code
+        grid_x = rng_key.uniform(lower_bound, upper_bound, (10, dim))
+        utility = np.array([negative_utility_fn(x_prime) for x_prime in grid_x])
+        max_utility = np.min(utility)
+        # Debug code
+
+        # inner_expectation[s] = result.fun
+        inner_expectation[s] = max_utility
+        pause = True
 
     increases = np.maximum(outer_samples - y_best, 0) - inner_expectation # this is minus, because we compute negative EI
     if args.kernel == 'rbf':
         ei = KQ_RBF_Gaussian(jnp.array(outer_samples[:, None]), jnp.array(increases.squeeze()), jnp.array(mu[0]), jnp.array(var))
     elif args.kernel == 'matern':
-        ei = KQ_Matern_Gaussian(jnp.array((outer_samples - mu[0]) / np.sqrt(var[0]))[:, None], jnp.array(increases.squeeze()))
+        # ei = KQ_Matern_12_Gaussian(jnp.array((outer_samples - mu[0]) / np.sqrt(var[0]))[:, None], jnp.array(increases.squeeze()))
+        ei = KQ_Matern_12_Uniform(jnp.array(scipy.stats.norm.cdf( (outer_samples - mu[0]) / np.sqrt(var[0]) ))[:, None], jnp.array(increases.squeeze()), 0., 1.)
     else:
         raise ValueError("Kernel not recognised")
     return -ei.squeeze()
@@ -227,6 +333,11 @@ def optimise_sample(args, rng_key, posterior, X, y, lower_bound, upper_bound, y_
         negative_utility_fn = lambda x: negative_ei_look_ahead_kq(args, rng_key, x, posterior, lower_bound, 
                                                                   upper_bound, X, y, 
                                                                   y_best, num_samples)
+    elif args.utility == 'EI_look_ahead_mlmc':
+        x_star = negative_ei_look_ahead_mlmc(args, rng_key, posterior, lower_bound, 
+                                             upper_bound, X, y, 
+                                             y_best, num_samples)
+        return x_star
     else:
         raise ValueError("Utility function not recognised")
     
@@ -235,14 +346,17 @@ def optimise_sample(args, rng_key, posterior, X, y, lower_bound, upper_bound, y_
     params_list = []
     fun_vals_list = []
 
-    # Run optimization for each initial condition and store both params and function values
-    for init_x in initial_conditions:
-        result = scipy.optimize.minimize(negative_utility_fn, init_x, method='Nelder-Mead', 
-                                         bounds=bounds, options={'maxiter': 10, 'disp': False})
-        params_list.append(result.x)  # Optimized parameters
-        fun_vals_list.append(result.fun)  # Function value at the minimum
+    # for init_x in initial_conditions:
+    #     result = scipy.optimize.minimize(negative_utility_fn, init_x, method='Nelder-Mead', 
+    #                                      bounds=bounds, options={'maxiter': 10, 'disp': False})
+    #     params_list.append(result.x)  # Optimized parameters
+    #     fun_vals_list.append(result.fun)  # Function value at the minimum
 
-    x_star = np.array(params_list)[np.argmin(np.array(fun_vals_list))]
+    grid_x = rng_key.uniform(lower_bound, upper_bound, (10, dim))
+    utility = np.array([negative_utility_fn(x_prime) for x_prime in grid_x])
+    max_utility = np.min(utility)
+    x_star = grid_x[np.argmin(utility)]
+    # x_star = np.array(params_list)[np.argmin(np.array(fun_vals_list))]
     return x_star
 
 def plot_bayes_opt(
@@ -346,8 +460,8 @@ def main(args):
         x_star = optimise_sample(args, rng_key, posterior, X, y, 
                                  lower_bound, upper_bound, y_best, num_samples, num_initial_sample_points=1)
 
-        # if (iter + len(y)) % 10 == 0:
-        # plot_bayes_opt(args, rng_key, get_data_fn, posterior, X, y, x_star, lower_bound, upper_bound,)
+        # if (iter + len(y_init)) % 10 == 0:
+        #     plot_bayes_opt(args, rng_key, get_data_fn, posterior, X, y, x_star, lower_bound, upper_bound,)
 
         # Evaluate the black-box function at the best point observed so far, and add it to the dataset
         y_star = get_data_fn(x_star[None, :])
