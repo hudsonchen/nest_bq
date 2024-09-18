@@ -81,33 +81,6 @@ def price(St, N, rng_key):
     return ST, psi_ST_1 - psi_ST_2
 
 
-def save_true_value(St, args):
-    """
-    Computes the ground truth value.
-    
-    Args:
-        St: (T, 1) the price at time t_finance
-        args: arguments
-    """
-    seed = args.seed
-    rng_key = jax.random.PRNGKey(seed)
-    rng_key, _ = jax.random.split(rng_key)
-
-    _, loss = price(St, 100000, rng_key)
-    value = loss.mean(1)
-    jnp.save(f"{args.save_path}/finance_theta.npy", St)
-    jnp.save(f"{args.save_path}/finance_EfX_theta.npy", value)
-    # plt.figure()
-    # plt.plot(St, value)
-    # plt.xlabel(r"$theta$")
-    # plt.ylabel(r"$\mathbb{E}[f(X) \mid theta]$")
-    # plt.title("True value for finance experiment")
-    # plt.savefig(f"{args.save_path}/true_distribution.pdf")
-    # # plt.show()
-    # plt.close()
-    return
-
-
 def run(args, N, T, rng_key):
     # Hyperparameters for the Black Scholes model
     s = 0.2
@@ -116,11 +89,15 @@ def run(args, N, T, rng_key):
     t_finance = 1
     S0 = 100
 
-    N  = 24
-    epsilon = jax.random.normal(rng_key, shape=(N, 1))
+    epsilon = jax.random.normal(rng_key, shape=(T, 1))
     St = S0 * jnp.exp(sigma * jnp.sqrt(t_finance) * epsilon - 0.5 * (sigma ** 2) * t_finance)
-    ST, loss = price(St, N + 10, rng_key)
+    ST, loss = price(St, N, rng_key)
     
+    # Debug code
+    # ST_large, loss_large = price(St, 2000, rng_key)
+    # I = loss_large.mean(1)
+    # Debug code
+
     # Nested Monte Carlo
     I_MC = loss.mean(1)
     I_NMC = jnp.maximum(I_MC, 0).mean(0)
@@ -132,9 +109,9 @@ def run(args, N, T, rng_key):
     f_I_KQ = jnp.maximum(I_KQ, 0)
 
     # This is nest kernel quadrature for the outer expectation
-    mu_St = -sigma ** 2 * (t_finance) / 2 + jnp.log(S0)
+    mu_St = -sigma ** 2 * t_finance / 2 + jnp.log(S0)
     std_St = jnp.sqrt(sigma ** 2 * (t_finance))
-    I_NKQ = KQ_log_RBF_log_Gaussian(St, f_I_KQ, mu_St, std_St)
+    I_NKQ = KQ_log_RBF_log_Gaussian(St, f_I_KQ.squeeze(), mu_St, std_St)
     return I_NMC, I_NKQ
 
 
@@ -145,7 +122,7 @@ def main(args):
     print(f"True value: {true_value}")
     # N_list = jnp.arange(10, 50, 5).tolist()
     # T_list = jnp.arange(10, 50, 5).tolist()
-    N_list = [10, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+    N_list = [10, 50, 100, 200, 300, 400, 500]
     # N_list = [1000]
 
     I_NMC_err_dict = {}

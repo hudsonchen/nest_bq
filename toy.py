@@ -36,6 +36,7 @@ def get_config():
     parser.add_argument('--kernel_x', type=str, default='rbf')
     parser.add_argument('--kernel_theta', type=str, default='rbf')
     parser.add_argument('--save_path', type=str, default='./')
+    parser.add_argument('--N_T_ratio', type=float, default=1.)
     args = parser.parse_args()
     return args
 
@@ -130,7 +131,8 @@ def main(args):
     print(f"True value: {true_value}")
     # N_list = jnp.arange(10, 50, 5).tolist()
     # T_list = jnp.arange(10, 50, 5).tolist()
-    N_list = [10, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+    # N_list = [10, 50, 100, 200, 300, 400, 500, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000]
+    N_list = [100, 300, 1000, 1500]
     # N_list = [1000]
 
     I_NMC_err_dict = {}
@@ -139,7 +141,7 @@ def main(args):
     num_seeds = 1
 
     for N in N_list:
-        T = N
+        T = int(jnp.power(N, args.N_T_ratio)) * 10
         I_NMC_errors = []
         I_NKQ_errors = []
         
@@ -173,7 +175,7 @@ def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
     args.save_path += f'results/toy/'
-    args.save_path += f"kernel_x_{args.kernel_x}__kernel_theta_{args.kernel_theta}"
+    args.save_path += f"kernel_x_{args.kernel_x}__kernel_theta_{args.kernel_theta}__N_T_ratio_{args.N_T_ratio}"
     os.makedirs(args.save_path, exist_ok=True)
     return args
 

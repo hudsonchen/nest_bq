@@ -255,7 +255,7 @@ def KQ_Matern_32_Uniform_Vectorized(X, f_X, a, b):
         I_NKQ: (T, )
         I_NKQ_std: (T, )
     """
-    vmap_func = jax.vmap(KQ_Matern_32_Uniform, in_axes=(None, 0, 0, None, None))
+    vmap_func = jax.vmap(KQ_Matern_32_Uniform, in_axes=(0, 0, None, None))
     return vmap_func(X, f_X, a, b)
 
 
@@ -327,8 +327,8 @@ def KQ_log_RBF_log_Gaussian(X, f_X, mu, std):
     N, D = X.shape[0], X.shape[1]
     eps = 1e-6
 
-    # l = 1.0
-    l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
+    # l = 0.1
+    l = jnp.median(jnp.abs(jnp.log(X) - jnp.log(X).mean(0)))  # Median heuristic
     A = 1.0
 
     K = A * my_log_RBF(X, X, l)

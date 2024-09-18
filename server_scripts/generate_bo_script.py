@@ -2,7 +2,7 @@ def generate_config():
     # Define parameters
     utilities = ['EI_look_ahead_kq', 'EI_look_ahead_mc', 'EI_look_ahead_mlmc']
     kernels = ['matern']
-    seeds = [0, 1, 2, 3, 4, 5, 6]
+    seeds = [7,8,9,10,11,12,13,14,15,16,17,18,19,20]
     dataset = 'ackley'
 
     # Open the file to write
