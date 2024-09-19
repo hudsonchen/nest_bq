@@ -505,4 +505,9 @@ if __name__ == "__main__":
     main(args)
     print("========================================")
     print("Finished running")
+    print(f"\nChanging save path from\n\n{args.save_path}\n\nto\n\n{args.save_path}__complete\n")
+    import shutil
+    if os.path.exists(f"{args.save_path}__complete"):
+        shutil.rmtree(f"{args.save_path}__complete")
+    os.rename(args.save_path, f"{args.save_path}__complete")
     print(f"Results saved at {args.save_path}")

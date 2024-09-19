@@ -132,7 +132,7 @@ def main(args):
     # N_list = jnp.arange(10, 50, 5).tolist()
     # T_list = jnp.arange(10, 50, 5).tolist()
     # N_list = [10, 50, 100, 200, 300, 400, 500, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000]
-    N_list = [100, 300, 1000, 1500]
+    N_list = [100, 300, 500, 800, 1000, 1200, 1500]
     # N_list = [1000]
 
     I_NMC_err_dict = {}
@@ -141,7 +141,7 @@ def main(args):
     num_seeds = 1
 
     for N in N_list:
-        T = int(jnp.power(N, args.N_T_ratio)) * 10
+        T = int(jnp.power(N, args.N_T_ratio))
         I_NMC_errors = []
         I_NKQ_errors = []
         
@@ -185,4 +185,9 @@ if __name__ == "__main__":
     main(args)
     print("========================================")
     print("Finished running")
-    print(f"Results saved at {args.save_path}")
+    # print(f"\nChanging save path from\n\n{args.save_path}\n\nto\n\n{args.save_path}__complete\n")
+    # import shutil
+    # if os.path.exists(f"{args.save_path}__complete"):
+    #     shutil.rmtree(f"{args.save_path}__complete")
+    # os.rename(args.save_path, f"{args.save_path}__complete")
+    # print(f"Results saved at {args.save_path}")
