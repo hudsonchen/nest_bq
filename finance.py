@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 import jax
+import scipy
 import jax.numpy as jnp
 from tqdm import tqdm
 import pickle
@@ -48,50 +49,55 @@ def get_config():
     args = parser.parse_args()
     return args
 
-def price(St, N, rng_key):
-    """
-    Computes the price ST at time T_finance.
-    ST is sampled from the conditional distribution p(ST|St).
-    Computes the loss \psi(ST) - \psi((1+s)ST) caused by the shock. 
-    Their shape is T * N
-    
-    Args:
-        St: (T, 1) the price at time t_finance
-        N: number of samples
-        
-    Returns:
-        ST: (T, N, 1)
-        f(ST): (T, N)
-    """
 
-    K1 = 50
-    K2 = 150
-    s = 0.2
-    sigma = 0.3
-    T_finance = 2
-    t_finance = 1
-
-    output_shape = (St.shape[0], N)
-    rng_key, _ = jax.random.split(rng_key)
-    epsilon = jax.random.normal(rng_key, shape=output_shape)
-    ST = St * jnp.exp(sigma * jnp.sqrt((T_finance - t_finance)) * epsilon - 0.5 * (sigma ** 2) * (T_finance - t_finance))
-    psi_ST_1 = jnp.maximum(ST - K1, 0) + jnp.maximum(ST - K2, 0) - 2 * jnp.maximum(ST - (K1 + K2) / 2, 0)
-    psi_ST_2 = jnp.maximum((1 + s) * ST - K1, 0) + jnp.maximum((1 + s) * ST - K2, 0) - 2 * jnp.maximum(
-        (1 + s) * ST - (K1 + K2) / 2, 0)
-    return ST, psi_ST_1 - psi_ST_2
-
-
-def run(args, N, T, rng_key):
+def run(args, N, T, use_qmc, rng_key):
     # Hyperparameters for the Black Scholes model
     s = 0.2
     sigma = 0.3
     T_finance = 2
     t_finance = 1
     S0 = 100
+    K1 = 50
+    K2 = 150
+    
+    def price(St, N, epsilon):
+        """
+        Computes the price ST at time T_finance.
+        ST is sampled from the conditional distribution p(ST|St).
+        Computes the loss \psi(ST) - \psi((1+s)ST) caused by the shock. 
+        Their shape is T * N
+        
+        Args:
+            St: (T, 1) the price at time t_finance
+            N: number of samples
+            
+        Returns:
+            ST: (T, N, 1)
+            f(ST): (T, N)
+        """
+        ST = St * jnp.exp(sigma * jnp.sqrt((T_finance - t_finance)) * epsilon - 0.5 * (sigma ** 2) * (T_finance - t_finance))
+        psi_ST_1 = jnp.maximum(ST - K1, 0) + jnp.maximum(ST - K2, 0) - 2 * jnp.maximum(ST - (K1 + K2) / 2, 0)
+        psi_ST_2 = jnp.maximum((1 + s) * ST - K1, 0) + jnp.maximum((1 + s) * ST - K2, 0) - 2 * jnp.maximum(
+            (1 + s) * ST - (K1 + K2) / 2, 0)
+        return ST, psi_ST_1 - psi_ST_2
 
-    epsilon = jax.random.normal(rng_key, shape=(T, 1))
-    St = S0 * jnp.exp(sigma * jnp.sqrt(t_finance) * epsilon - 0.5 * (sigma ** 2) * t_finance)
-    ST, loss = price(St, N, rng_key)
+    if use_qmc:
+        sequence = scipy.stats.qmc.Sobol(1).random(T)
+        epsilon_outer = jax.scipy.stats.norm.ppf(sequence)
+    else:
+        rng_key, _ = jax.random.split(rng_key)
+        epsilon_outer = jax.random.normal(rng_key, shape=(T, 1))
+    St = S0 * jnp.exp(sigma * jnp.sqrt(t_finance) * epsilon_outer - 0.5 * (sigma ** 2) * t_finance)
+    output_shape = (St.shape[0], N)
+
+    if use_qmc:
+        sequence = [scipy.stats.qmc.Sobol(1).random(T) for _ in range(N)]
+        sequence = np.array(sequence).squeeze()
+        epsilon_inner = jax.scipy.stats.norm.ppf(sequence).T
+    else:
+        rng_key, _ = jax.random.split(rng_key)
+        epsilon_inner = jax.random.normal(rng_key, shape=output_shape)
+    ST, loss = price(St, N, epsilon_inner)
     
     # Debug code
     # ST_large, loss_large = price(St, 2000, rng_key)
@@ -122,43 +128,57 @@ def main(args):
     print(f"True value: {true_value}")
     # N_list = jnp.arange(10, 50, 5).tolist()
     # T_list = jnp.arange(10, 50, 5).tolist()
-    N_list = [10, 50, 100, 200, 300, 400, 500]
+    N_list = [50, 100, 200, 300, 400, 500]
     # N_list = [1000]
 
-    I_NMC_err_dict = {}
-    I_NKQ_err_dict = {}
+    I_NMC_err_dict, I_NKQ_err_dict = {}, {}
+    I_NMC_err_qmc_dict, I_NKQ_err_qmc_dict = {}, {}
 
-    num_seeds = 1
+    num_seeds = 10
 
     for N in N_list:
         T = N
-        I_NMC_errors = []
-        I_NKQ_errors = []
-        
+        I_NMC_errors, I_NKQ_errors = [], []
+        I_NMC_qmc_errors, I_NKQ_qmc_errors = [], []
+
         for s in range(num_seeds):
             rng_key, _ = jax.random.split(rng_key)
-            I_NMC, I_NKQ = run(args, N, T, rng_key)
+            use_qmc = False
+            I_NMC, I_NKQ = run(args, N, T, use_qmc, rng_key)
+
+            use_qmc = True
+            rng_key, _ = jax.random.split(rng_key)
+            I_NMC_qmc, I_NKQ_qmc = run(args, N, T, use_qmc, rng_key)
+
             I_NMC_errors.append(jnp.abs(I_NMC - true_value))
             I_NKQ_errors.append(jnp.abs(I_NKQ - true_value))
+            I_NMC_qmc_errors.append(jnp.abs(I_NMC_qmc - true_value))
+            I_NKQ_qmc_errors.append(jnp.abs(I_NKQ_qmc - true_value))
         
         I_NMC_err = jnp.median(jnp.array(I_NMC_errors))
         I_NKQ_err = jnp.median(jnp.array(I_NKQ_errors))
-        I_NMC_err_dict[(N, T)] = I_NMC_err
-        I_NKQ_err_dict[(N, T)] = I_NKQ_err
+        I_NKQ_err_qmc = jnp.median(jnp.array(I_NKQ_qmc_errors))
+        I_NMC_err_qmc = jnp.median(jnp.array(I_NMC_qmc_errors))
+        I_NMC_err_dict[(N, T)], I_NKQ_err_dict[(N, T)] = I_NMC_err, I_NKQ_err
+        I_NMC_err_qmc_dict[(N, T)], I_NKQ_err_qmc_dict[(N, T)] = I_NMC_err_qmc, I_NKQ_err_qmc
 
-        methods = ["NKQ", "NMC"]
-        errs = [I_NKQ_err, I_NMC_err]
+        methods = ["NKQ", "NMC", "NKQ (QMC)", "NMC (QMC)"]
+        errs = [I_NKQ_err, I_NMC_err, I_NKQ_err_qmc, I_NMC_err_qmc]
 
         print(f"T = {T} and N = {N}")
         print("========================================")
         print("Methods:    " + " ".join([f"{method:<10}" for method in methods]))
-        print("RMSE:       " + " ".join([f"{value:<10.6f}" for value in errs]))
+        print("ASE:       " + " ".join([f"{value:<10.6f}" for value in errs]))
         print("========================================\n\n")
 
     with open(f"{args.save_path}/seed_{args.seed}__NKQ", 'wb') as file:
         pickle.dump(I_NKQ_err_dict, file)
     with open(f"{args.save_path}/seed_{args.seed}__NMC", 'wb') as file:
         pickle.dump(I_NMC_err_dict, file)
+    with open(f"{args.save_path}/seed_{args.seed}__NKQ_QMC", 'wb') as file:
+        pickle.dump(I_NKQ_err_qmc_dict, file)
+    with open(f"{args.save_path}/seed_{args.seed}__NMC_QMC", 'wb') as file:
+        pickle.dump(I_NMC_err_qmc_dict, file)
     return
 
 

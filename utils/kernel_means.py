@@ -328,7 +328,8 @@ def KQ_log_RBF_log_Gaussian(X, f_X, mu, std):
     eps = 1e-6
 
     # l = 0.1
-    l = jnp.median(jnp.abs(jnp.log(X) - jnp.log(X).mean(0)))  # Median heuristic
+    l = 0.1
+    # l = jnp.median(jnp.abs(jnp.log(X) - jnp.log(X).mean(0)))  # Median heuristic
     A = 1.0
 
     K = A * my_log_RBF(X, X, l)
