@@ -481,10 +481,10 @@ def main(args):
     plt.xlabel("Iterations")
     plt.ylabel("NMSE")
     plt.yscale("log")
-    plt.savefig(args.save_path + f"bo_nmse.png")
+    plt.savefig(args.save_path + f"/bo_nmse.png")
     plt.close()
 
-    np.save(args.save_path + f"bo_nmse.npy", np.array(nmse_list))
+    np.save(args.save_path + f"/bo_nmse.npy", np.array(nmse_list))
     return
 
 
@@ -492,7 +492,7 @@ def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
     args.save_path += f'results/bo/{args.datasets}/'
-    args.save_path += f"{args.utility}__dim_{args.dim}__N_{args.N}__kernel_{args.kernel}__seed_{args.seed}/"
+    args.save_path += f"{args.utility}__dim_{args.dim}__N_{args.N}__kernel_{args.kernel}__seed_{args.seed}"
     if os.path.exists(args.save_path) and os.listdir(args.save_path):  # If directory exists and is not empty
         shutil.rmtree(args.save_path)
     os.makedirs(args.save_path, exist_ok=True)
