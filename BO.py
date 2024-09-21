@@ -418,8 +418,6 @@ def plot_bayes_opt(
     return
 
 def main(args):
-    bo_iters = 100
-    initial_sample_num = 5
     rng_key = np.random.default_rng(args.seed)
 
     # load datasets
@@ -428,26 +426,36 @@ def main(args):
         get_data_fn = partial(load_ackley, dim=args.dim)
         lower_bound, upper_bound = np.array([-5.0]), np.array([5.0])
         ground_truth_best_y = 1.4019
+        bo_iters = 100
+        initial_sample_num = 5
     elif args.datasets == 'emulator':
         get_data_fn = emulator
         lower_bound, upper_bound = np.array([-10.0]), np.array([10.0])
         ground_truth_best_y = 0.
         dim = 1
+        bo_iters = 100
+        initial_sample_num = 5
     elif args.datasets == 'dropwave':
         args.dim = dim = 2
         get_data_fn = partial(load_dropwave)
         lower_bound, upper_bound = np.array([-5.12]), np.array([5.12])
         ground_truth_best_y = 1.0
+        bo_iters = 100
+        initial_sample_num = 5
     elif args.datasets == 'branin':
         args.dim = dim = 2
         get_data_fn = partial(load_branin)
         lower_bound, upper_bound = np.array([-5.0, 0.0]), np.array([10.0, 15.0])
         ground_truth_best_y = 0.397887
+        bo_iters = 100
+        initial_sample_num = 5
     elif args.datasets == 'cosine8':
         args.dim = dim = 8
         get_data_fn = partial(load_cosine8)
         lower_bound, upper_bound = np.array([-1.0]), np.array([1.0])
         ground_truth_best_y = 0.8
+        bo_iters = 200
+        initial_sample_num = 20
     else:
         raise ValueError("Dataset not recognised")
     X = rng_key.uniform(lower_bound, upper_bound, (initial_sample_num, dim))

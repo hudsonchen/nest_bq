@@ -91,6 +91,9 @@ def run(args, N, T, rng_key):
     I_NMC = f(I_theta_MC).mean(0)
     # print(f"Nested Monte Carlo: {I_NMC}")
 
+    if args.N_T_ratio == 2. and N >= 50:
+        return I_NMC, jnp.nan
+    
     # This is nest kernel quadrature
     a, b = 0, 1.
     mu, var = jnp.zeros([N, 1]), jnp.ones([N, 1, 1])
@@ -136,7 +139,8 @@ def main(args):
     elif args.N_T_ratio == 0.5:
         N_list = [20, 50, 100, 300, 500, 800, 1000, 1200, 1500]
     elif args.N_T_ratio == 2.0:
-        N_list = [3, 10, 20, 30, 40]
+        # N_list = [3, 10, 20, 30, 40]
+        N_list = [3, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     else:
         N_list = [10, 50, 100, 200, 300, 400, 500, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000]
     # N_list = [1000]
