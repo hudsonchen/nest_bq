@@ -128,7 +128,7 @@ def main(args):
     print(f"True value: {true_value}")
     # N_list = jnp.arange(10, 50, 5).tolist()
     # T_list = jnp.arange(10, 50, 5).tolist()
-    N_list = [50, 100, 200, 300, 400, 500]
+    N_list = [10, 50, 100, 200, 300, 400, 500]
     # N_list = [1000]
 
     I_NMC_err_dict, I_NKQ_err_dict = {}, {}

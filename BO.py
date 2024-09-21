@@ -443,6 +443,11 @@ def main(args):
         get_data_fn = partial(load_branin)
         lower_bound, upper_bound = np.array([-5.0, 0.0]), np.array([10.0, 15.0])
         ground_truth_best_y = 0.397887
+    elif args.datasets == 'cosine8':
+        args.dim = dim = 8
+        get_data_fn = partial(load_cosine8)
+        lower_bound, upper_bound = np.array([-1.0]), np.array([1.0])
+        ground_truth_best_y = 0.8
     else:
         raise ValueError("Dataset not recognised")
     X = rng_key.uniform(lower_bound, upper_bound, (initial_sample_num, dim))
