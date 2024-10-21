@@ -37,6 +37,7 @@ def get_config():
     parser.add_argument('--kernel_theta', type=str, default='rbf')
     parser.add_argument('--save_path', type=str, default='./')
     parser.add_argument('--N_T_ratio', type=float, default=1.)
+    parser.add_argument('--d', type=int, default=1)
     args = parser.parse_args()
     return args
 
@@ -54,22 +55,20 @@ def f(x):
 #     return (1 + jnp.sqrt(3) * jnp.abs(x - theta)) * jnp.exp(- jnp.sqrt(3) * jnp.abs(x - theta))
 
 def g(x, theta):
-    return jnp.abs(x - theta) ** 1.5
+    return jnp.sqrt((x ** 2).sum(-1)) ** 2.5 + jnp.sqrt((theta[:, None, :] ** 2).sum(-1)) ** 2.5
 
-def simulate_theta(T, rng_key):
+def simulate_theta(T, d, rng_key):
     rng_key, _ = jax.random.split(rng_key)
-    Theta = jax.random.uniform(rng_key, shape=(T, 1), minval=0., maxval=1.)
+    Theta = jax.random.uniform(rng_key, shape=(T, d), minval=0., maxval=1.)
     return Theta
 
 
-def simulate_x_theta(N, Theta, rng_key):
+def simulate_x_theta(N, d, Theta, rng_key):
     def simulate_x_per_theta(N, theta, rng_key):
-        rng_key, _ = jax.random.split(rng_key)
-        x = jax.random.uniform(rng_key, shape=(N, ), minval=0., maxval=1.)
-        # x = jax.random.normal(rng_key, shape=(N, ))
+        x = jax.random.uniform(rng_key, shape=(N, d), minval=0., maxval=1.)
         return x
-    vmap_func = jax.vmap(simulate_x_per_theta, in_axes=(None, 0, None))
-    X = vmap_func(N, Theta, rng_key)
+    vmap_func = jax.vmap(simulate_x_per_theta, in_axes=(None, 0, 0))
+    X = vmap_func(N, Theta, jax.random.split(rng_key, len(Theta)))
     return X
 
 
@@ -82,8 +81,8 @@ def run(args, N, T, rng_key):
     # I = \E_{theta} f ( \E_{x | theta} [g(x, theta)] )
 
     rng_key, _ = jax.random.split(rng_key)
-    Theta = simulate_theta(T, rng_key)
-    X = simulate_x_theta(N, Theta, rng_key)
+    Theta = simulate_theta(T, args.d, rng_key)
+    X = simulate_x_theta(N, args.d, Theta, rng_key)
     g_X = g(X, Theta)
 
     # This is nested Monte Carlo
@@ -95,47 +94,48 @@ def run(args, N, T, rng_key):
         return I_NMC, jnp.nan
     
     # This is nest kernel quadrature
-    a, b = 0, 1.
+    a, b = 0, 1
     mu, var = jnp.zeros([N, 1]), jnp.ones([N, 1, 1])
     if args.kernel_x == "rbf":
-        I_theta_KQ = KQ_RBF_Uniform_Vectorized(X[:, :, None], g_X, a, b)
-        # I_theta_KQ = KQ_RBF_Gaussian_Vectorized(X[:, :, None], g_X, mu, var)
+        I_theta_KQ = KQ_RBF_Uniform_Vectorized(X, g_X, a, b)
+        # I_theta_KQ = KQ_RBF_Gaussian_Vectorized(X, g_X, mu, var)
     elif args.kernel_x == "matern":
-        I_theta_KQ = KQ_Matern_32_Uniform_Vectorized(X[:, :, None], g_X, a, b)
+        I_theta_KQ = KQ_Matern_32_Uniform_Vectorized(X, g_X, a * jnp.ones([T, args.d]), b * jnp.ones([T, args.d]))
 
     f_I_theta_KQ = f(I_theta_KQ)
     a, b = 0, 1
     if args.kernel_theta == "rbf":
         I_NKQ = KQ_RBF_Uniform(Theta, f_I_theta_KQ, a, b)
     elif args.kernel_theta == "matern":
-        I_NKQ = KQ_Matern_32_Uniform(Theta, f_I_theta_KQ, a, b)
+        I_NKQ = KQ_Matern_32_Uniform(Theta, f_I_theta_KQ, a * jnp.ones([args.d]), b * jnp.ones([args.d]))
     
-    # print(f"Nested kernel quadrature: {I_NKQ}")
     pause = True
     return I_NMC, I_NKQ
 
 
 def main(args):
     rng_key = jax.random.PRNGKey(args.seed)
-    # true_value = 0.5 * jnp.log(2 / 5 / jnp.pi) - 2 / 15
 
     # # Debug code: Use 10000 samples to estimate the true value
-    # rng_key, _ = jax.random.split(rng_key)
-    # Theta = simulate_theta(10000, rng_key)
-    # X = simulate_x_theta(10000, Theta, rng_key)
-    # g_X = g(X, Theta)
-    # I_theta_MC = g_X.mean(1)
-    # I_NMC = f(I_theta_MC).mean(0)
-    #
-    # true_value_1 = -60 - 37 * jnp.sqrt(3) + 48 * (7 + 4 * jnp.sqrt(3)) * jnp.exp(2 * jnp.sqrt(3))
-    # true_value = (1/144) * (192 - 83 * jnp.sqrt(3) + jnp.exp(-4 * jnp.sqrt(3)) * true_value_1)
-    true_value = 4/25 *(1/3 + 5 * jnp.pi / 512)
+    if args.d > 1:
+        rng_key, _ = jax.random.split(rng_key)
+        Theta = simulate_theta(10000, args.d, rng_key)
+        X = simulate_x_theta(10000, args.d, Theta, rng_key)
+        g_X = g(X, Theta)
+        I_theta_MC = g_X.mean(1)
+        I_NMC = f(I_theta_MC).mean(0)
+        true_value = I_NMC
+    else:
+        # true_value_1 = (jnp.pi ** (args.d / 2)) / jax.scipy.special.gamma(args.d / 2) * (1 / (3 + args.d))
+        # true_value_2 = 3 * ( (jnp.pi ** (args.d / 2)) / jax.scipy.special.gamma(args.d / 2) * (1 / (1.5 + args.d)) ) ** 2
+        # true_value = true_value_1 + true_value_2
+        true_value = 4. / 49. + 8. / 49. + 1. / 6.
 
     print(f"True value: {true_value}")
     # N_list = jnp.arange(10, 50, 5).tolist()
     # T_list = jnp.arange(10, 50, 5).tolist()
     if args.N_T_ratio == 1.:
-        N_list = [10, 50, 100, 200, 300, 400, 500, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000]
+        N_list = [10, 30, 50, 70, 100, 200, 300, 400, 500, 600, 800, 1000]
     elif args.N_T_ratio == 0.5:
         N_list = [20, 50, 100, 300, 500, 800, 1000, 1200, 1500]
     elif args.N_T_ratio == 2.0:
@@ -185,7 +185,7 @@ def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
     args.save_path += f'results/toy/'
-    args.save_path += f"kernel_x_{args.kernel_x}__kernel_theta_{args.kernel_theta}__N_T_ratio_{args.N_T_ratio}"
+    args.save_path += f"dim_{args.d}__kernel_x_{args.kernel_x}__kernel_theta_{args.kernel_theta}__N_T_ratio_{args.N_T_ratio}"
     os.makedirs(args.save_path, exist_ok=True)
     return args
 

@@ -7,113 +7,21 @@ from jax.scipy.special import erf, erfc
 import time
 
 
-def stein_Matern(x, y, l, d_log_px, d_log_py):
-    """
-    Stein Matern kernel.
-
-    Args:
-        x: (N, D)
-        y: (M, D)
-        l: scalar
-        d_log_px: (N, D)
-        d_log_py: (M, D)
-
-    Returns:
-        kernel matrix: (N, M)
-    """
-    N, D = x.shape
-    M = y.shape[0]
-
-    batch_kernel = tfp.math.psd_kernels.MaternThreeHalves(amplitude=1., length_scale=l)
-    grad_x_K_fn = jax.grad(batch_kernel.apply, argnums=0)
-    vec_grad_x_K_fn = jax.vmap(grad_x_K_fn, in_axes=(0, 0), out_axes=0)
-    grad_y_K_fn = jax.grad(batch_kernel.apply, argnums=1)
-    vec_grad_y_K_fn = jax.vmap(grad_y_K_fn, in_axes=(0, 0), out_axes=0)
-
-    grad_xy_K_fn = jax.jacfwd(jax.jacrev(batch_kernel.apply, argnums=1), argnums=0)
-
-    def diag_sum_grad_xy_K_fn(x, y):
-        return jnp.diag(grad_xy_K_fn(x, y)).sum()
-
-    vec_grad_xy_K_fn = jax.vmap(diag_sum_grad_xy_K_fn, in_axes=(0, 0), out_axes=0)
-
-    x_dummy = jnp.stack([x] * N, axis=1).reshape(N * M, D)
-    y_dummy = jnp.stack([y] * M, axis=0).reshape(N * M, D)
-
-    K = batch_kernel.matrix(x, y)
-    dx_K = vec_grad_x_K_fn(x_dummy, y_dummy).reshape(N, M, D)
-    dy_K = vec_grad_y_K_fn(x_dummy, y_dummy).reshape(N, M, D)
-    dxdy_K = vec_grad_xy_K_fn(x_dummy, y_dummy).reshape(N, M)
-
-    part1 = d_log_px @ d_log_py.T * K
-    part2 = (d_log_py[None, :] * dx_K).sum(-1)
-    part3 = (d_log_px[:, None, :] * dy_K).sum(-1)
-    part4 = dxdy_K
-
-    return part1 + part2 + part3 + part4
-
-
-def stein_Gaussian(x, y, l, d_log_px, d_log_py):
-    """
-    Stein Gaussian kernel.
-
-    Args:
-        x: (N, D)
-        y: (M, D)
-        l: scalar
-        d_log_px: (N, D)
-        d_log_py: (M, D)
-        
-    Returns:
-        kernel matrix: (N, M)
-    """
-    N, D = x.shape
-    M = y.shape[0]
-
-    batch_kernel = tfp.math.psd_kernels.ExponentiatedQuadratic(amplitude=1., length_scale=l)
-    grad_x_K_fn = jax.grad(batch_kernel.apply, argnums=0)
-    vec_grad_x_K_fn = jax.vmap(grad_x_K_fn, in_axes=(0, 0), out_axes=0)
-    grad_y_K_fn = jax.grad(batch_kernel.apply, argnums=1)
-    vec_grad_y_K_fn = jax.vmap(grad_y_K_fn, in_axes=(0, 0), out_axes=0)
-
-    grad_xy_K_fn = jax.jacfwd(jax.jacrev(batch_kernel.apply, argnums=1), argnums=0)
-
-    def diag_sum_grad_xy_K_fn(x, y):
-        return jnp.diag(grad_xy_K_fn(x, y)).sum()
-
-    vec_grad_xy_K_fn = jax.vmap(diag_sum_grad_xy_K_fn, in_axes=(0, 0), out_axes=0)
-
-    x_dummy = jnp.stack([x] * N, axis=1).reshape(N * M, D)
-    y_dummy = jnp.stack([y] * M, axis=0).reshape(N * M, D)
-
-    K = batch_kernel.matrix(x, y)
-    dx_K = vec_grad_x_K_fn(x_dummy, y_dummy).reshape(N, M, D)
-    dy_K = vec_grad_y_K_fn(x_dummy, y_dummy).reshape(N, M, D)
-    dxdy_K = vec_grad_xy_K_fn(x_dummy, y_dummy).reshape(N, M)
-
-    part1 = d_log_px @ d_log_py.T * K
-    part2 = (d_log_py[None, :] * dx_K).sum(-1)
-    part3 = (d_log_px[:, None, :] * dy_K).sum(-1)
-    part4 = dxdy_K
-
-    return part1 + part2 + part3 + part4
-
-
 @jax.jit
 def my_Matern_32(x, y, l):
     """
     Matern three halves kernel.
 
     Args:
-        x: (N, D)
-        y: (M, D)
+        x: (N, )
+        y: (M, )
         l: scalar
 
     Returns:
         kernel matrix: (N, M)
     """
     kernel = tfp.math.psd_kernels.MaternThreeHalves(amplitude=1., length_scale=l)
-    K = kernel.matrix(x, y)
+    K = kernel.matrix(x[:, None], y[:, None])
     return K
 
 
@@ -123,95 +31,52 @@ def my_Matern_12(x, y, l):
     Matern three halves kernel.
 
     Args:
-        x: (N, D)
-        y: (M, D)
+        x: (N, )
+        y: (M, )
         l: scalar
 
     Returns:
         kernel matrix: (N, M)
     """
     kernel = tfp.math.psd_kernels.MaternOneHalf(amplitude=1., length_scale=l)
-    K = kernel.matrix(x, y)
+    K = kernel.matrix(x[:, None], y[:, None])
     return K
 
 
-# @jax.jit
-def dx_Matern_32(x, y, l):
+@jax.jit
+def my_Matern_12_product(x, y, l):
     """
-    Matern three halves kernel derivative with respect to the first input.
+    Product Matern three halves kernel.
 
     Args:
         x: (N, D)
         y: (M, D)
-        l: scalar
+        l: (D, )
 
     Returns:
-        derivative of kernel matrix: (N, M, D)
+        kernel matrix: (N, M)
     """
-    N, D = x.shape
-    M = y.shape[0]
-    kernel = tfp.math.psd_kernels.MaternThreeHalves(amplitude=1., length_scale=l)
-    grad_x_K_fn = jax.grad(kernel.apply, argnums=0)
-    vec_grad_x_K_fn = jax.vmap(grad_x_K_fn, in_axes=(0, 0), out_axes=0)
-    x_dummy = jnp.stack([x] * N, axis=1).reshape(N * M, D)
-    y_dummy = jnp.stack([y] * M, axis=0).reshape(N * M, D)
-    dx_K = vec_grad_x_K_fn(x_dummy, y_dummy).reshape(N, M, D)
-    return dx_K
+    high_d_map = jax.vmap(my_Matern_12, in_axes=(0, 0, 0))
+    K_all_d = high_d_map(x.T, y.T, l)
+    return jnp.mean(K_all_d, axis=0)
 
 
-# @jax.jit
-def dy_Matern_32(x, y, l):
+@jax.jit
+def my_Matern_32_product(x, y, l):
     """
-    Matern kernel derivative with respect to the second input.
+    Product Matern three halves kernel.
 
     Args:
         x: (N, D)
         y: (M, D)
-        l: scalar
+        l: (D, )
 
     Returns:
-        derivative of kernel matrix: (N, M, D)
+        kernel matrix: (N, M)
     """
-    N, D = x.shape
-    M = y.shape[0]
-    kernel = tfp.math.psd_kernels.MaternThreeHalves(amplitude=1., length_scale=l)
-    grad_y_K_fn = jax.grad(kernel.apply, argnums=1)
-    vec_grad_y_K_fn = jax.vmap(grad_y_K_fn, in_axes=(0, 0), out_axes=0)
-    x_dummy = jnp.stack([x] * N, axis=1).reshape(N * M, D)
-    y_dummy = jnp.stack([y] * M, axis=0).reshape(N * M, D)
-    dy_K = vec_grad_y_K_fn(x_dummy, y_dummy).reshape(N, M, D)
-    return dy_K
-
-
-# @jax.jit
-def dxdy_Matern_32(x, y, l):
-    """
-    The inner product of dx_Matern and dy_Matern
-    A fully vecotrized implementation.
-
-    Args:
-        x: (N, D)
-        y: (M, D)
-        l: scalar
-
-    Returns:
-        inner product (N, M)
-    """
-    N, D = x.shape
-    M = y.shape[0]
-
-    kernel = tfp.math.psd_kernels.MaternThreeHalves(amplitude=1., length_scale=l)
-    grad_xy_K_fn = jax.jacfwd(jax.jacrev(kernel.apply, argnums=1), argnums=0)
-
-    def diag_sum_grad_xy_K_fn(x, y):
-        return jnp.diag(grad_xy_K_fn(x, y)).sum()
-
-    vec_grad_xy_K_fn = jax.vmap(diag_sum_grad_xy_K_fn, in_axes=(0, 0), out_axes=0)
-    x_dummy = jnp.stack([x] * N, axis=1).reshape(N * M, D)
-    y_dummy = jnp.stack([y] * M, axis=0).reshape(N * M, D)
-    dxdy_K = vec_grad_xy_K_fn(x_dummy, y_dummy).reshape(N, M)
-    return dxdy_K
-
+    high_d_map = jax.vmap(my_Matern_32, in_axes=(0, 0, 0))
+    K_all_d = high_d_map(x.T, y.T, l)
+    return jnp.prod(K_all_d, axis=0)
 
 @jax.jit
 def my_RBF(x, y, l):
@@ -311,13 +176,13 @@ def kme_Matern_32_Gaussian(l, y):
     return final
 
 @jax.jit
-def kme_Matern_32_Uniform(a, b, l, y):
+def kme_Matern_32_Uniform_1d(a, b, l, y):
     """
     The implementation of the kernel mean embedding of the Matern three halves kernel with Uniform distribution U[a,b]
     Only in one dimension, D = 1
     
     Args:
-        y: (M, D)
+        y: (M, )
         l: scalar
 
     Returns:
@@ -338,13 +203,32 @@ def kme_Matern_32_Uniform(a, b, l, y):
 
 
 @jax.jit
-def kme_Matern_12_Gaussian(l, y):
+def kme_Matern_32_Uniform(a, b, l, y):
+    """
+    The implementation of the kernel mean embedding of the Matern three halves kernel with Uniform distribution U[a,b]
+    Only works for product Matern kernel
+    
+    Args:
+        a: (D, )
+        b: (D, )
+        l: (D, )
+        y: (M, D)
+
+    Returns:
+        kernel mean embedding: (M, )
+    """
+    high_d_map = jax.vmap(kme_Matern_32_Uniform_1d, in_axes=(0, 0, 0, 0))
+    kme_all_d = high_d_map(a, b, l, y.T)
+    return jnp.prod(kme_all_d, axis=0)
+
+@jax.jit
+def kme_Matern_12_Gaussian_1d(l, y):
     """
     The implementation of the kernel mean embedding of the Matern one half kernel with Gaussian distribution
     Only in one dimension, and the Gaussian distribution is N(0, 1)
     
     Args:
-        y: (M, D)
+        y: (M, )
         l: scalar
 
     Returns:
@@ -356,13 +240,30 @@ def kme_Matern_12_Gaussian(l, y):
     return (part1 + part2) / 2
 
 @jax.jit
-def kme_Matern_12_Uniform(a, b, l, y):
+def kme_Matern_12_Gaussian(l, y):
+    """
+    The implementation of the kernel mean embedding of the Matern one half kernel with Gaussian distribution
+    Only in one dimension, and the Gaussian distribution is N(0, 1)
+    
+    Args:
+        y: (M, D)
+        l: (D, )
+
+    Returns:
+        kernel mean embedding: (M, )
+    """
+    high_d_map = jax.vmap(kme_Matern_12_Gaussian_1d, in_axes=(0, 0))
+    kme_all_d = high_d_map(l, y.T)
+    return jnp.mean(kme_all_d, axis=0)
+
+@jax.jit
+def kme_Matern_12_Uniform_1d(a, b, l, y):
     """
     The implementation of the kernel mean embedding of the Matern one half kernel with Uniform distribution U[a,b]
     Only in one dimension, D = 1
     
     Args:
-        y: (M, D)
+        y: (M, )
         l: scalar
 
     Returns:
@@ -374,6 +275,25 @@ def kme_Matern_12_Uniform(a, b, l, y):
     kme = term1 + term2
     return kme
 
+
+@jax.jit
+def kme_Matern_12_Uniform(a, b, l, y):
+    """
+    The implementation of the kernel mean embedding of the Matern three halves kernel with Uniform distribution U[a,b]
+    Only works for product Matern kernel
+    
+    Args:
+        a: (D, )
+        b: (D, )
+        l: (D, )
+        y: (M, D)
+
+    Returns:
+        kernel mean embedding: (M, )
+    """
+    high_d_map = jax.vmap(kme_Matern_12_Uniform_1d, in_axes=(0, 0, 0, 0))
+    kme_all_d = high_d_map(a, b, l, y.T)
+    return jnp.prod(kme_all_d, axis=0)
 
 @jax.jit
 def kme_RBF_Gaussian(mu, Sigma, l, y):

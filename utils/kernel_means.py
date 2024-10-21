@@ -102,7 +102,7 @@ def KQ_RBF_Uniform_Vectorized(X, f_X, a, b):
         I_NKQ: (T, )
         I_NKQ_std: (T, )
     """
-    vmap_func = jax.vmap(KQ_RBF_Uniform, in_axes=(None, 0, 0, None, None))
+    vmap_func = jax.vmap(KQ_RBF_Uniform, in_axes=(0, 0, None, None))
     return vmap_func(X, f_X, a, b)
 
 
@@ -176,10 +176,10 @@ def KQ_Matern_12_Gaussian(X, f_X):
     eps = 1e-6
 
     A = 1.
-    l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
-    # l = 1.
+    # l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
+    l = 1. * jnp.ones(D)
 
-    K = A * my_Matern_12(X, X, l)
+    K = A * my_Matern_12_product(X, X, l)
     K_inv = jnp.linalg.inv(K + eps * jnp.eye(N))
     phi = A * kme_Matern_12_Gaussian(l, X)
     # varphi = A
@@ -202,14 +202,14 @@ def KQ_Matern_12_Gaussian_Vectorized(X, f_X):
         I_NKQ: (T, )
         I_NKQ_std: (T, )
     """
-    vmap_func = jax.vmap(KQ_Matern_12_Gaussian, in_axes=(None, 0, 0))
+    vmap_func = jax.vmap(KQ_Matern_12_Gaussian, in_axes=(0, 0))
     return vmap_func(X, f_X)
 
 
 def KQ_Matern_32_Uniform(X, f_X, a, b):
     """
     KQ, not Vectorized over theta.
-    Only works for one-d, D = 1
+    Only works for product Matern kernel
 
     \int f(x) U(x| a , b) dx
 
@@ -217,8 +217,8 @@ def KQ_Matern_32_Uniform(X, f_X, a, b):
         rng_key: random number generator
         X: shape (N, D)
         f_X: shape (N, )
-        a: float
-        b: float
+        a: (D, )
+        b: (D,)
     Returns:
         I_NKQ: float
     """
@@ -226,13 +226,13 @@ def KQ_Matern_32_Uniform(X, f_X, a, b):
     eps = 1e-6
 
     A = 1.
-    l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
-    # l = 1.
+    # l = jnp.median(jnp.abs(X - X.mean(0)), axis=0)  # Median heuristic
+    l = jnp.ones(D) * 3.0
+    # l = jnp.median(jnp.abs(X - X.mean(0))) * jnp.ones(D)
 
-    K = A * my_Matern_32(X, X, l)
+    K = A * my_Matern_32_product(X, X, l)
     K_inv = jnp.linalg.inv(K + eps * jnp.eye(N))
     phi = A * kme_Matern_32_Uniform(a, b, l, X)
-    # varphi = A
 
     I_NKQ = phi.T @ K_inv @ f_X
     pause = True
@@ -243,19 +243,19 @@ def KQ_Matern_32_Uniform(X, f_X, a, b):
 def KQ_Matern_32_Uniform_Vectorized(X, f_X, a, b):
     """
     KQ, Vectorized over the first indice of X and f_X.
-    Only works for one-d D = 1 and for standard normal distribution
+    Only works for product Matern kernel
 
     Args:
         rng_key: random number generator
         X: shape (T, N, D)
         f_X: shape (T, N)
-        a: float
-        b: float
+        a: (T, D)
+        b: (T, D)
     Returns:
         I_NKQ: (T, )
         I_NKQ_std: (T, )
     """
-    vmap_func = jax.vmap(KQ_Matern_32_Uniform, in_axes=(0, 0, None, None))
+    vmap_func = jax.vmap(KQ_Matern_32_Uniform, in_axes=(0, 0, 0, 0))
     return vmap_func(X, f_X, a, b)
 
 
