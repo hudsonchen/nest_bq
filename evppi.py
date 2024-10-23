@@ -5,6 +5,7 @@ from functools import partial
 import argparse
 import os
 import pwd
+import pickle
 from utils.kernel_means import *
 
 jax.config.update('jax_platform_name', 'cpu')
@@ -31,8 +32,8 @@ def get_config():
     # Args settings
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--save_path', type=str, default='./')
-    parser.add_argument('--multi_level', action='store_true', default=True)
-    parser.add_argument('--eps', type=flat, default=0.01)
+    parser.add_argument('--multi_level', action='store_true', default=False)
+    parser.add_argument('--eps', type=float, default=0.01)
     args = parser.parse_args()
     return args
 
@@ -186,17 +187,21 @@ def sample_x_theta(N, Theta1, Theta2, rng_key):
     return u1, x1, u2, x2
 
 
-def nested_monte_carlo(T, N, rng_key):
+def sample(T, N, rng_key):
     rng_key, _ = jax.random.split(rng_key)
     Theta1, Theta2, u = sample_theta(T, rng_key)
-    u1, x1, u2, x2 = sample_x_theta(N, Theta1, Theta2, rng_key)
+    u1, x1, u2, x2 = sample_x_theta(N, Theta1, Theta2, rng_key) 
+    return Theta1, Theta2, u, u1, x1, u2, x2
+
+
+def nested_monte_carlo(Theta1, Theta2, u, u1, x1, u2, x2):
     f1_val, f2_val = f1(Theta1, x1), f2(Theta2, x2)
     f1_val_mean, f2_val_mean = jnp.mean(f1_val, axis=1), jnp.mean(f2_val, axis=1)
     I = np.mean(jnp.maximum(f1_val_mean, f2_val_mean))
     return I
 
 
-def nested_kernel_quadrature(T, N, rng_key):
+def nested_kernel_quadrature(Theta1, Theta2, u, u1, x1, u2, x2):
     # Debug code
     # rng_key, _ = jax.random.split(rng_key)
     # Theta1_debug, Theta2_debug, u_debug = sample_theta(100, rng_key)
@@ -205,9 +210,6 @@ def nested_kernel_quadrature(T, N, rng_key):
     # f1_val_mean_debug, f2_val_mean_debug = jnp.mean(f1_val_debug, axis=1), jnp.mean(f2_val_debug, axis=1)
     # I_debug = np.mean(jnp.maximum(f1_val_mean_debug, f2_val_mean_debug))
     #
-    rng_key, _ = jax.random.split(rng_key)
-    Theta1, Theta2, u = sample_theta(T, rng_key)
-    u1, x1, u2, x2 = sample_x_theta(N, Theta1, Theta2, rng_key)
     f1_val, f2_val = f1(Theta1, x1), f2(Theta2, x2)
     scale_1, shift_1, scale_2, shift_2 = f1_val.std(), f1_val.mean(), f2_val.std(), f2_val.mean()
     f1_val_normalized = (f1_val - shift_1) / scale_1
@@ -223,57 +225,94 @@ def nested_kernel_quadrature(T, N, rng_key):
     return I
 
 
-def mlmc(eps, L, use_kq, rng_key):
+def nested_kernel_quadrature_multi_level(Theta1, Theta2, u, u1_prev, x1_prev, u2_prev, x2_prev,
+                                         u1, x1, u2, x2):
+    # Debug code
+    # rng_key, _ = jax.random.split(rng_key)
+    # Theta1_debug, Theta2_debug, u_debug = sample_theta(100, rng_key)
+    # u1_debug, x1_debug, u2_debug, x2_debug = sample_x_theta(100, Theta1_debug, Theta2_debug, rng_key)
+    # f1_val_debug, f2_val_debug = f1(Theta1_debug, x1_debug), f2(Theta2_debug, x2_debug)
+    # f1_val_mean_debug, f2_val_mean_debug = jnp.mean(f1_val_debug, axis=1), jnp.mean(f2_val_debug, axis=1)
+    # I_debug = np.mean(jnp.maximum(f1_val_mean_debug, f2_val_mean_debug))
+    #
+    f1_val, f2_val = f1(Theta1, x1), f2(Theta2, x2)
+    scale_1, shift_1, scale_2, shift_2 = f1_val.std(), f1_val.mean(), f2_val.std(), f2_val.mean()
+    f1_val_normalized = (f1_val - shift_1) / scale_1
+    f2_val_normalized = (f2_val - shift_2) / scale_2
+    f1_val_kq = KQ_Matern_12_Gaussian_Vectorized(u1, f1_val_normalized) 
+    f2_val_kq = KQ_Matern_12_Gaussian_Vectorized(u2, f2_val_normalized)
+    f1_val_kq_, f2_val_kq_ = f1_val_kq * scale_1 + shift_1, f2_val_kq * scale_2 + shift_2
+    f_max = jnp.maximum(f1_val_kq_, f2_val_kq_)
+
+    f1_val_prev, f2_val_prev = f1(Theta1, x1_prev), f2(Theta2, x2_prev)
+    scale_1_prev, shift_1_prev, scale_2_prev, shift_2_prev = f1_val_prev.std(), f1_val_prev.mean(), f2_val_prev.std(), f2_val_prev.mean()
+    f1_val_normalized_prev = (f1_val_prev - shift_1_prev) / scale_1_prev
+    f2_val_normalized_prev = (f2_val_prev - shift_2_prev) / scale_2_prev
+    f1_val_kq_prev = KQ_Matern_12_Gaussian_Vectorized(u1_prev, f1_val_normalized_prev)
+    f2_val_kq_prev = KQ_Matern_12_Gaussian_Vectorized(u2_prev, f2_val_normalized_prev)
+    f1_val_kq_prev_, f2_val_kq_prev_ = f1_val_kq_prev * scale_1_prev + shift_1_prev, f2_val_kq_prev * scale_2_prev + shift_2_prev
+    f_max_prev = jnp.maximum(f1_val_kq_prev_, f2_val_kq_prev_)
+
+    f_difference = f_max - f_max_prev
+    scale, shift = f_difference.std(), f_difference.mean()
+    f_difference_normalized = (f_difference - shift) / scale
+    I = KQ_Matern_12_Gaussian(u, f_difference_normalized)
+    I = I * scale + shift
+    return I
+
+
+def mlmc(eps, N0, L, use_kq, rng_key):
     rng_key, _ = jax.random.split(rng_key)
     # Check input parameters
     if L < 2:
         raise ValueError('error: needs L >= 2')
 
     # Initialisation
-    N0 = 10
     if use_kq:
-        Nl = N0 * (2 ** jnp.arange(L))
-        Tl = N0 / eps * (2 ** (-2. * jnp.arange(L)))
+        Nl = 2 * (2 ** jnp.arange(L))
+        Tl = N0 / eps * (2 ** (-1. * jnp.arange(L)))
     else:
-        Nl = N0 * (2 ** jnp.arange(L))
-        Tl = N0 / eps * (2 ** (-2. * jnp.arange(L)))     
+        Nl = 2 * (2 ** jnp.arange(L))
+        Tl = N0 / eps * (2 ** (-1. * jnp.arange(L)))     
           
     Yl = jnp.zeros(L)
     Cl = jnp.zeros(L)
 
     for l in range(L):
         if l == 0:
-            N, T = Nl[l], int(Tl[l]) + 1
+            N, T = int(Nl[l]), int(Tl[l]) + 1
             rng_key, _ = jax.random.split(rng_key)
+            Theta1, Theta2, u, u1, x1, u2, x2 = sample(T, N, rng_key)
+
             if use_kq:
-                Y = nested_kernel_quadrature(T, N, rng_key)
+                rng_key, _ = jax.random.split(rng_key)
+                Y = nested_kernel_quadrature(Theta1, Theta2, u, u1, x1, u2, x2)
                 Yl = Yl.at[l].set(Y)
             else:
-                Y = nested_monte_carlo(T, N, rng_key)
+                rng_key, _ = jax.random.split(rng_key)
+                Y = nested_monte_carlo(Theta1, Theta2, u, u1, x1, u2, x2)
                 Yl = Yl.at[l].set(Y)
             Cl = Cl.at[l].set(N * T)
         else:
-            N, N_prev, T = Nl[l], Nl[l-1], int(Tl[l]) + 1
+            N, N_prev, T = int(Nl[l]), int(Nl[l-1]), int(Tl[l]) + 1
+            Theta1, Theta2, u, u1, x1, u2, x2 = sample(T, N, rng_key)
+            u1_prev, x1_prev, u2_prev, x2_prev = u1[:, :N_prev, :], x1[:, :N_prev, :], u2[:, :N_prev, :], x2[:, :N_prev, :]
+
             if use_kq:
                 rng_key, _ = jax.random.split(rng_key)
-                Y_prev = nested_kernel_quadrature(T, N_prev, rng_key)
+                Y_diff = nested_kernel_quadrature_multi_level(Theta1, Theta2, u, u1_prev, x1_prev, u2_prev, x2_prev, u1, x1, u2, x2)
+                Yl = Yl.at[l].set(Y_diff)
             else:
                 rng_key, _ = jax.random.split(rng_key)
-                Y_prev = nested_monte_carlo(T, N_prev, rng_key)
-            if use_kq:
-                rng_key, _ = jax.random.split(rng_key)
-                Y = nested_kernel_quadrature(T, N_prev, rng_key)
-            else:
-                rng_key, _ = jax.random.split(rng_key)
-                Y = nested_monte_carlo(T, N_prev, rng_key)
-            Yl = Yl.at[l].set(Y - Y_prev)
+                Y_prev = nested_monte_carlo(Theta1, Theta2, u, u1_prev, x1_prev, u2_prev, x2_prev)
+                Y = nested_monte_carlo(Theta1, Theta2, u, u1, x1, u2, x2)
+                Yl = Yl.at[l].set(Y - Y_prev)
             Cl = Cl.at[l].set(N * T)
 
     # Final estimation
     P = Yl.sum()
     C = Cl.sum()
-    N_total, T_total = Nl.sum(), Tl.sum()
-    return P, C, N_total, T_total
+    return P, C
 
 
 def run(args):
@@ -292,36 +331,62 @@ def run(args):
     print(f"True value: {true_value}")
 
     L = 5
+    I_mc_err_dict = {}
+    I_kq_err_dict = {}
 
+    N0 = int(2 ** L * args.eps) + 1
+    
     if args.multi_level:
         use_kq = False
-        I_MLMC_nmc, cost, N_total, T_total = mlmc(args.eps, L, use_kq, rng_key)
+        I_MLMC_nmc, cost = mlmc(args.eps, N0, L, use_kq, rng_key)
         print(f"MLMC MC: {I_MLMC_nmc} with cost {cost}")
+        I_mc_err_dict[f'cost_{cost}'] = jnp.abs(I_MLMC_nmc - true_value)
 
         use_kq = True
-        I_MLMC_nkq, cost, N_total, T_total = mlmc(args.eps, L, use_kq, rng_key)
+        I_MLMC_nkq, cost = mlmc(args.eps, N0, L, use_kq, rng_key)
         print(f"MLMC KQ: {I_MLMC_nkq} with cost {cost}")
+        I_kq_err_dict[f'cost_{cost}'] = jnp.abs(I_MLMC_nkq - true_value)
     else:
-        T_total = N_total = args.eps
+        N0 = 1
+        N_total = int((1. / args.eps) * N0)
+        T_total = int((1. / args.eps) * N0)
         I_nmc = nested_monte_carlo(T_total, N_total, rng_key)
-        print(f"NMC: {I_nmc} with cost {N_total * T_total}")
+        cost = N_total * T_total
+        print(f"NMC: {I_nmc} with cost {cost}")
+        I_mc_err_dict[f'cost_{cost}'] = jnp.abs(I_nmc - true_value)
 
+        N_total = int((1. / args.eps) * N0)
+        T_total = int((1. / args.eps) * N0)
         I_nkq = nested_kernel_quadrature(T_total, N_total, rng_key)
-        print(f"NKQ: {I_nkq} with cost {N_total * T_total}")
+        print(f"NKQ: {I_nkq} with cost {cost}")
+        I_kq_err_dict[f'cost_{cost}'] = jnp.abs(I_nkq - true_value)
 
-    print(f"T = {T} and N = {N}")
-    print("========================================")
-    print("Methods:    " + " ".join([f"{method:<10}" for method in methods]))
-    print("RMSE:       " + " ".join([f"{value:<10.6f}" for value in errs]))
-    print("========================================\n\n")
-
-    with open(f"{args.save_path}/seed_{args.seed}__NKQ", 'wb') as file:
-        pickle.dump(I_NKQ_err_dict, file)
-    with open(f"{args.save_path}/seed_{args.seed}__NMC", 'wb') as file:
-        pickle.dump(I_NMC_err_dict, file)
+    
+    with open(f"{args.save_path}/seed_{args.seed}_MC", 'wb') as file:
+        pickle.dump(I_mc_err_dict, file)
+    with open(f"{args.save_path}/seed_{args.seed}_KQ", 'wb') as file:
+        pickle.dump(I_kq_err_dict, file)
     return
+
+
+def create_dir(args):
+    if args.seed is None:
+        args.seed = int(time.time())
+    args.save_path += f'results/evppi/'
+    args.save_path += f"multi_level_{args.multi_level}__eps_{args.eps}__seed_{args.seed}"
+    os.makedirs(args.save_path, exist_ok=True)
+    return args
 
 
 if __name__ == '__main__':
     args = get_config()
+    args = create_dir(args)
     run(args)
+    save_path = args.save_path
+    print(f"\nChanging save path from\n\n{save_path}\n\nto\n\n{save_path}__complete\n")
+    import shutil
+    if os.path.exists(f"{save_path}__complete"):
+        shutil.rmtree(f"{save_path}__complete")
+    os.rename(save_path, f"{save_path}__complete")
+    print("\n------------------- DONE -------------------\n")
+    print("Finished running")
