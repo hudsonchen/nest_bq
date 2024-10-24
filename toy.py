@@ -55,7 +55,7 @@ def f(x):
 #     return (1 + jnp.sqrt(3) * jnp.abs(x - theta)) * jnp.exp(- jnp.sqrt(3) * jnp.abs(x - theta))
 
 def g(x, theta):
-    return jnp.sqrt((x ** 2).sum(-1)) ** 2.5 + jnp.sqrt((theta[:, None, :] ** 2).sum(-1)) ** 2.5
+    return (x ** 2.5).sum(-1) + (theta[:, None, :] ** 2.5).sum(-1)
 
 def simulate_theta(T, d, rng_key):
     rng_key, _ = jax.random.split(rng_key)
@@ -115,22 +115,7 @@ def run(args, N, T, rng_key):
 
 def main(args):
     rng_key = jax.random.PRNGKey(args.seed)
-
-    # # Debug code: Use 10000 samples to estimate the true value
-    if args.d > 1:
-        rng_key, _ = jax.random.split(rng_key)
-        Theta = simulate_theta(10000, args.d, rng_key)
-        X = simulate_x_theta(10000, args.d, Theta, rng_key)
-        g_X = g(X, Theta)
-        I_theta_MC = g_X.mean(1)
-        I_NMC = f(I_theta_MC).mean(0)
-        true_value = I_NMC
-    else:
-        # true_value_1 = (jnp.pi ** (args.d / 2)) / jax.scipy.special.gamma(args.d / 2) * (1 / (3 + args.d))
-        # true_value_2 = 3 * ( (jnp.pi ** (args.d / 2)) / jax.scipy.special.gamma(args.d / 2) * (1 / (1.5 + args.d)) ) ** 2
-        # true_value = true_value_1 + true_value_2
-        true_value = 4. / 49. + 8. / 49. + 1. / 6.
-
+    true_value = (12. / 49.) * (args.d ** 2) + (1. / 6.) * args.d + (4. / 49.) * args.d * (args.d - 1)
     print(f"True value: {true_value}")
     # N_list = jnp.arange(10, 50, 5).tolist()
     # T_list = jnp.arange(10, 50, 5).tolist()
@@ -194,10 +179,4 @@ if __name__ == "__main__":
     args = create_dir(args)
     main(args)
     print("========================================")
-    print("Finished running")
-    # print(f"\nChanging save path from\n\n{args.save_path}\n\nto\n\n{args.save_path}__complete\n")
-    # import shutil
-    # if os.path.exists(f"{args.save_path}__complete"):
-    #     shutil.rmtree(f"{args.save_path}__complete")
-    # os.rename(args.save_path, f"{args.save_path}__complete")
-    # print(f"Results saved at {args.save_path}")
+    print(f"Results are saved in {args.save_path}")

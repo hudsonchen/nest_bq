@@ -7,3 +7,5 @@
 # rsync -ruP myriad:/home/ucabzc9/Scratch/CBQ/results/decision/ /Users/hudsonchen/research/fx_bayesian_quaduature/CBQ/results_server/decision/
 
 rsync -ruP ucabzc9@myriad.rc.ucl.ac.uk:/home/ucabzc9/Scratch/nest_bq/results/bo/ /home/zongchen/nest_bq/results_server/bo
+
+rsync -ruP /home/zongchen/nest_bq/figures /Users/hudsonchen/research/fx_bayesian_quaduature/CBQ/
