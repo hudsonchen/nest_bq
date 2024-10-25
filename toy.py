@@ -126,7 +126,7 @@ def main(args):
     # N_list = jnp.arange(10, 50, 5).tolist()
     # T_list = jnp.arange(10, 50, 5).tolist()
     if args.N_T_ratio == 1.:
-        N_list = [10, 30, 50, 70, 100, 200, 300, 400, 500, 600, 800]
+        N_list = [10, 30, 50, 70, 100, 200, 300, 400, 500, 600, 800, 1000]
     elif args.N_T_ratio == 0.5:
         N_list = [20, 50, 100, 300, 500, 800, 1000, 1200, 1500]
     elif args.N_T_ratio == 2.0:
