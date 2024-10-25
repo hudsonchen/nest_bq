@@ -1,8 +1,5 @@
 import jax.numpy as jnp
 import jax
-from tensorflow_probability.substrates import jax as tfp
-import matplotlib.pyplot as plt
-from tqdm import tqdm
 import time
 import pickle
 import argparse
@@ -16,14 +13,7 @@ jax.config.update("jax_enable_x64", True)
 if pwd.getpwuid(os.getuid())[0] == 'hudsonchen':
     os.chdir("/Users/hudsonchen/research/fx_bayesian_quaduature/nest_bq")
 elif pwd.getpwuid(os.getuid())[0] == 'zongchen':
-    # os.chdir("/home/zongchen/CBQ")
     os.chdir("/home/zongchen/nest_bq")
-    # os.environ[
-    #     "XLA_FLAGS"
-    # ] = "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
-    # os.environ["OPENBLAS_NUM_THREADS"] = "1"
-    # os.environ["MKL_NUM_THREADS"] = "1"
-    # os.environ["OMP_NUM_THREAD"] = "1"
 elif pwd.getpwuid(os.getuid())[0] == 'ucabzc9':
     os.chdir("/home/ucabzc9/Scratch/nest_bq")
 else:
