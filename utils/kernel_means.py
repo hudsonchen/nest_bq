@@ -54,7 +54,7 @@ def KQ_RBF_Gaussian_Vectorized(X, f_X, mu_X_theta, var_X_theta):
     return vmap_func(X, f_X, mu_X_theta, var_X_theta)
 
 
-def KQ_RBF_Uniform(X, f_X, a, b):
+def KQ_RBF_Uniform(X, f_X, a, b, scale):
     """
     KQ, not Vectorized.
 
@@ -75,6 +75,7 @@ def KQ_RBF_Uniform(X, f_X, a, b):
     A = 1.
     l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
     # l = 1.
+    l *= scale
 
     K = A * my_RBF(X, X, l)
     K_inv = jnp.linalg.inv(K + eps * jnp.eye(N))
@@ -87,7 +88,7 @@ def KQ_RBF_Uniform(X, f_X, a, b):
     return I_NKQ.squeeze()
 
 
-def KQ_RBF_Uniform_Vectorized(X, f_X, a, b):
+def KQ_RBF_Uniform_Vectorized(X, f_X, a, b, scale):
     """
     KQ, Vectorized over the first indice of X and f_X.
     a and b are scalars
@@ -102,8 +103,8 @@ def KQ_RBF_Uniform_Vectorized(X, f_X, a, b):
         I_NKQ: (T, )
         I_NKQ_std: (T, )
     """
-    vmap_func = jax.vmap(KQ_RBF_Uniform, in_axes=(0, 0, None, None))
-    return vmap_func(X, f_X, a, b)
+    vmap_func = jax.vmap(KQ_RBF_Uniform, in_axes=(0, 0, None, None, None))
+    return vmap_func(X, f_X, a, b, scale)
 
 
 def KQ_Matern_32_Gaussian(X, f_X):
@@ -206,7 +207,63 @@ def KQ_Matern_12_Gaussian_Vectorized(X, f_X):
     return vmap_func(X, f_X)
 
 
-def KQ_Matern_32_Uniform(X, f_X, a, b):
+def KQ_Matern_32_Uniform(X, f_X, a, b, scale):
+    """
+    KQ, not Vectorized over theta.
+    Only works for product Matern kernel
+
+    \int f(x) U(x| a , b) dx
+
+    Args:
+        rng_key: random number generator
+        X: shape (N, D)
+        f_X: shape (N, )
+        a: (D, )
+        b: (D,)
+        scale: lengthscale scaling factor for median heuristic
+    Returns:
+        I_NKQ: float
+    """
+    N, D = X.shape[0], X.shape[1]
+    eps = 1e-6
+
+    A = 1.
+    # l = jnp.median(jnp.abs(X - X.mean(0)), axis=0)  # Median heuristic
+    l = jnp.ones(D) 
+    l *= scale
+    # l = jnp.median(jnp.abs(X - X.mean(0))) * jnp.ones(D)
+
+    K = A * my_Matern_32_product(X, X, l)
+    K_inv = jnp.linalg.inv(K + eps * jnp.eye(N))
+    phi = A * kme_Matern_32_Uniform(a, b, l, X)
+
+    I_NKQ = phi.T @ K_inv @ f_X
+    pause = True
+    return I_NKQ.squeeze()
+
+
+
+def KQ_Matern_32_Uniform_Vectorized(X, f_X, a, b, scale):
+    """
+    KQ, Vectorized over the first indice of X and f_X.
+    Only works for product Matern kernel
+
+    Args:
+        rng_key: random number generator
+        X: shape (T, N, D)
+        f_X: shape (T, N)
+        a: (T, D)
+        b: (T, D)
+        scale: lengthscale scaling factor for median heuristic
+    Returns:
+        I_NKQ: (T, )
+        I_NKQ_std: (T, )
+    """
+    vmap_func = jax.vmap(KQ_Matern_32_Uniform, in_axes=(0, 0, 0, 0, None))
+    return vmap_func(X, f_X, a, b, scale)
+
+
+def KQ_Matern_12_Uniform(X, f_X, a, b, scale):
     """
     KQ, not Vectorized over theta.
     Only works for product Matern kernel
@@ -226,21 +283,21 @@ def KQ_Matern_32_Uniform(X, f_X, a, b):
     eps = 1e-6
 
     A = 1.
-    # l = jnp.median(jnp.abs(X - X.mean(0)), axis=0)  # Median heuristic
-    l = jnp.ones(D) * 3.0
-    # l = jnp.median(jnp.abs(X - X.mean(0))) * jnp.ones(D)
+    # l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
+    # l = 1.
+    l = jnp.ones(D)
+    l *= scale
 
-    K = A * my_Matern_32_product(X, X, l)
+    K = A * my_Matern_12_product(X, X, l)
     K_inv = jnp.linalg.inv(K + eps * jnp.eye(N))
-    phi = A * kme_Matern_32_Uniform(a, b, l, X)
+    phi = A * kme_Matern_12_Uniform(a, b, l, X)
+    # varphi = A
 
     I_NKQ = phi.T @ K_inv @ f_X
     pause = True
     return I_NKQ.squeeze()
 
-
-
-def KQ_Matern_32_Uniform_Vectorized(X, f_X, a, b):
+def KQ_Matern_12_Uniform_Vectorized(X, f_X, a, b, scale):
     """
     KQ, Vectorized over the first indice of X and f_X.
     Only works for product Matern kernel
@@ -255,61 +312,11 @@ def KQ_Matern_32_Uniform_Vectorized(X, f_X, a, b):
         I_NKQ: (T, )
         I_NKQ_std: (T, )
     """
-    vmap_func = jax.vmap(KQ_Matern_32_Uniform, in_axes=(0, 0, 0, 0))
-    return vmap_func(X, f_X, a, b)
+    vmap_func = jax.vmap(KQ_Matern_12_Uniform, in_axes=(0, 0, 0, 0, None))
+    return vmap_func(X, f_X, a, b, scale)
 
 
-def KQ_Matern_12_Uniform(X, f_X, a, b):
-    """
-    KQ, not Vectorized over theta.
-    Only works for one-d, D = 1
-
-    \int f(x) U(x| a , b) dx
-
-    Args:
-        X: shape (N, D)
-        f_X: shape (N, )
-        a: float
-        b: float
-    Returns:
-        I_NKQ: float
-    """
-    N, D = X.shape[0], X.shape[1]
-    eps = 1e-6
-
-    A = 1.
-    l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
-    # l = 1.
-
-    K = A * my_Matern_12(X, X, l)
-    K_inv = jnp.linalg.inv(K + eps * jnp.eye(N))
-    phi = A * kme_Matern_12_Uniform(a, b, l, X)
-    # varphi = A
-
-    I_NKQ = phi.T @ K_inv @ f_X
-    pause = True
-    return I_NKQ.squeeze()
-
-def KQ_Matern_12_Uniform_Vectorized(X, f_X, a, b):
-    """
-    KQ, Vectorized over the first indice of X and f_X.
-    Only works for one-d D = 1 and for standard normal distribution
-
-    Args:
-        rng_key: random number generator
-        X: shape (T, N, D)
-        f_X: shape (T, N)
-        a: float
-        b: float
-    Returns:
-        I_NKQ: (T, )
-        I_NKQ_std: (T, )
-    """
-    vmap_func = jax.vmap(KQ_Matern_12_Uniform, in_axes=(0, 0, None, None))
-    return vmap_func(X, f_X, a, b)
-
-
-def KQ_log_RBF_log_Gaussian(X, f_X, mu, std):
+def KQ_log_RBF_log_Gaussian(X, f_X, mu, std, scale):
     """
     KQ, not Vectorized. Only works for one-d, D = 1
 
@@ -321,6 +328,7 @@ def KQ_log_RBF_log_Gaussian(X, f_X, mu, std):
         f_X: shape (N, )
         mu: float
         std: float
+        scale: lengthscale scaling factor for median heuristic
     Returns:
         I_NKQ: float
     """
@@ -329,6 +337,7 @@ def KQ_log_RBF_log_Gaussian(X, f_X, mu, std):
 
     # l = 0.1
     l = 0.1
+    l *= scale
     # l = jnp.median(jnp.abs(jnp.log(X) - jnp.log(X).mean(0)))  # Median heuristic
     A = 1.0
 
@@ -339,7 +348,7 @@ def KQ_log_RBF_log_Gaussian(X, f_X, mu, std):
     return I_NKQ
 
 
-def KQ_log_RBF_log_Gaussian_Vectorized(X, f_X, mu, std):
+def KQ_log_RBF_log_Gaussian_Vectorized(X, f_X, mu, std, scale):
     """
     KQ, not Vectorized. Only works for one-d, D = 1
 
@@ -354,5 +363,5 @@ def KQ_log_RBF_log_Gaussian_Vectorized(X, f_X, mu, std):
     Returns:
         I_NKQ: (T, )
     """
-    vmap_func = jax.vmap(KQ_log_RBF_log_Gaussian, in_axes=(0, 0, 0, 0))
-    return vmap_func(X, f_X, mu, std)
+    vmap_func = jax.vmap(KQ_log_RBF_log_Gaussian, in_axes=(0, 0, 0, 0, None))
+    return vmap_func(X, f_X, mu, std, scale)
