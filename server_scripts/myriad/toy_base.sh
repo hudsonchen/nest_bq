@@ -18,11 +18,11 @@ echo "Job params: $JOB_PARAMS"
 #module load cuda/11.2.0/gnu-10.2.0
 
 ## Load conda
-# module -f unload compilers
-# module load compilers/gnu/4.9.2
-# module load python/miniconda3/4.10.3
-# source $UCL_CONDA_PATH/etc/profile.d/conda.sh
-conda activate nest_bq
+module -f unload compilers
+module load compilers/gnu/4.9.2
+module load python/miniconda3/4.10.3
+source $UCL_CONDA_PATH/etc/profile.d/conda.sh
+conda activate /lustre/home/ucabzc9/.conda/envs/cbq
 
 date
 
@@ -30,4 +30,4 @@ date
 which pip
 which python
 
-python /home/zongchen/nest_bq/toy.py $JOB_PARAMS
+python /home/ucabzc9/Scratch/nest_bq/toy.py $JOB_PARAMS

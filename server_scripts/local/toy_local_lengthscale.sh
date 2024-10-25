@@ -1,44 +1,44 @@
 #!/bin/bash
---seed 0 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 1 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 2 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 3 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 4 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 5 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 6 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 7 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 8 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 9 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 10 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 11 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 12 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 13 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 14 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 15 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 16 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 17 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 18 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 19 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
---seed 20 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 0 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 1 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 2 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 3 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 4 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 5 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 6 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 7 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 8 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 9 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 10 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 11 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 12 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 13 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 14 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 15 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 16 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 17 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 18 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 19 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 20 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 0.1
 #!/bin/bash
---seed 0 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 1 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 2 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 3 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 4 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 5 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 6 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 7 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 8 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 9 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 10 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 11 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 12 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 13 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 14 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 15 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 16 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 17 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 18 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 19 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
---seed 20 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 0 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 1 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 2 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 3 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 4 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 5 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 6 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 7 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 8 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 9 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 10 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 11 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 12 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 13 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 14 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 15 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 16 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 17 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 18 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 19 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
+/home/zongchen/miniconda3/envs/look_ahead_bo/bin/python toy.py --seed 20 --kernel_x matern --kernel_theta matern --N_T_ratio 1.0 --d 1 --scale 1.0
