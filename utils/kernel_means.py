@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 
 
-def KQ_RBF_Gaussian(X, f_X, mu_X_theta, var_X_theta):
+def KQ_RBF_Gaussian(X, f_X, mu_X_theta, var_X_theta, scale):
     """
     KQ, not Vectorized.
 
@@ -21,8 +21,9 @@ def KQ_RBF_Gaussian(X, f_X, mu_X_theta, var_X_theta):
     N, D = X.shape[0], X.shape[1]
     eps = 1e-6
 
-    # l = 1.0
-    l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
+    l = 1.0
+    # l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
+    l *= scale
     A = 1.0
 
     K = A * my_RBF(X, X, l)
@@ -36,7 +37,7 @@ def KQ_RBF_Gaussian(X, f_X, mu_X_theta, var_X_theta):
     return I_NKQ
 
 
-def KQ_RBF_Gaussian_Vectorized(X, f_X, mu_X_theta, var_X_theta):
+def KQ_RBF_Gaussian_Vectorized(X, f_X, mu_X_theta, var_X_theta, scale):
     """
     KQ, Vectorized over the first indice of X, f_X, mu_X_theta and var_X_theta.
 
@@ -50,8 +51,8 @@ def KQ_RBF_Gaussian_Vectorized(X, f_X, mu_X_theta, var_X_theta):
         I_NKQ: (T, )
         I_NKQ_std: (T, )
     """
-    vmap_func = jax.vmap(KQ_RBF_Gaussian, in_axes=(None, 0, 0, 0, 0))
-    return vmap_func(X, f_X, mu_X_theta, var_X_theta)
+    vmap_func = jax.vmap(KQ_RBF_Gaussian, in_axes=(0, 0, 0, 0, None))
+    return vmap_func(X, f_X, mu_X_theta, var_X_theta, scale)
 
 
 def KQ_RBF_Uniform(X, f_X, a, b, scale):
@@ -336,7 +337,8 @@ def KQ_log_RBF_log_Gaussian(X, f_X, mu, std, scale):
     eps = 1e-6
 
     # l = 0.1
-    l = 0.1
+    l = 1.0
+    # l = 0.1
     l *= scale
     # l = jnp.median(jnp.abs(jnp.log(X) - jnp.log(X).mean(0)))  # Median heuristic
     A = 1.0
@@ -360,6 +362,7 @@ def KQ_log_RBF_log_Gaussian_Vectorized(X, f_X, mu, std, scale):
         f_X: shape (T, N)
         mu: (T,)
         std: (T, )
+        scale: lengthscale scaling factor for median heuristic
     Returns:
         I_NKQ: (T, )
     """

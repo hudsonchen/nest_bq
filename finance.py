@@ -12,7 +12,9 @@ import pwd
 import shutil
 import argparse
 from jax import config
+import warnings
 
+warnings.filterwarnings("ignore", message="The balance properties of Sobol' points require n to be a power of 2.")
 config.update('jax_platform_name', 'cpu')
 config.update("jax_enable_x64", True)
 
@@ -82,21 +84,21 @@ def run(args, N, T, use_qmc, rng_key):
         return ST, psi_ST_1 - psi_ST_2
 
     if use_qmc:
-        sequence = scipy.stats.qmc.Sobol(1).random(T)
-        epsilon_outer = jax.scipy.stats.norm.ppf(sequence)
+        u_outer = scipy.stats.qmc.Sobol(1).random(T)
     else:
         rng_key, _ = jax.random.split(rng_key)
-        epsilon_outer = jax.random.normal(rng_key, shape=(T, 1))
+        u_outer = jax.random.uniform(rng_key, shape=(T, 1))
+    epsilon_outer = jax.scipy.stats.norm.ppf(u_outer)
     St = S0 * jnp.exp(sigma * jnp.sqrt(t_finance) * epsilon_outer - 0.5 * (sigma ** 2) * t_finance)
     output_shape = (St.shape[0], N)
 
     if use_qmc:
-        sequence = [scipy.stats.qmc.Sobol(1).random(T) for _ in range(N)]
-        sequence = np.array(sequence).squeeze()
-        epsilon_inner = jax.scipy.stats.norm.ppf(sequence).T
+        u_inner = [scipy.stats.qmc.Sobol(1).random(T) for _ in range(N)]
+        u_inner = np.array(u_inner).squeeze()
     else:
         rng_key, _ = jax.random.split(rng_key)
-        epsilon_inner = jax.random.normal(rng_key, shape=output_shape)
+        u_inner = jax.random.uniform(rng_key, shape=output_shape)
+    epsilon_inner = jax.scipy.stats.norm.ppf(u_inner).T
     ST, loss = price(St, N, epsilon_inner)
     
     # Debug code
@@ -109,15 +111,23 @@ def run(args, N, T, use_qmc, rng_key):
     I_NMC = jnp.maximum(I_MC, 0).mean(0)
 
     # This is nest kernel quadrature for the inner expectation
+    if N < 50:
+        scale = 1.
+    else:
+        scale = 1.
     mu_ST_St = -sigma ** 2 * (T_finance - t_finance) / 2 + jnp.log(St)
     std_ST_St = jnp.sqrt(sigma ** 2 * (T_finance - t_finance)) * jnp.ones_like(St)
-    I_KQ = KQ_log_RBF_log_Gaussian_Vectorized(ST[:, :, None], loss, mu_ST_St, std_ST_St)
+    # I_KQ = KQ_log_RBF_log_Gaussian_Vectorized(ST[:, :, None], loss, mu_ST_St, std_ST_St, scale)
+    # I_KQ = KQ_RBF_Gaussian_Vectorized(epsilon_inner[:, :, None], loss, jnp.zeros([N, 1]), jnp.ones([N, 1]), scale)
+    I_KQ = KQ_Matern_12_Uniform_Vectorized(u_inner[:, :, None], loss, jnp.zeros([N, 1]), jnp.ones([N, 1]), scale)
     f_I_KQ = jnp.maximum(I_KQ, 0)
 
     # This is nest kernel quadrature for the outer expectation
     mu_St = -sigma ** 2 * t_finance / 2 + jnp.log(S0)
     std_St = jnp.sqrt(sigma ** 2 * (t_finance))
-    I_NKQ = KQ_log_RBF_log_Gaussian(St, f_I_KQ.squeeze(), mu_St, std_St)
+    # I_NKQ = KQ_log_RBF_log_Gaussian(St, f_I_KQ.squeeze(), mu_St, std_St, scale)
+    # I_NKQ = KQ_RBF_Gaussian(epsilon_outer, f_I_KQ.squeeze(), jnp.zeros([1]), jnp.ones([1, 1]), scale)
+    I_NKQ = KQ_Matern_12_Uniform(u_outer, f_I_KQ, jnp.zeros([1]), jnp.ones([1]), scale)
     return I_NMC, I_NKQ
 
 
@@ -128,13 +138,13 @@ def main(args):
     print(f"True value: {true_value}")
     # N_list = jnp.arange(10, 50, 5).tolist()
     # T_list = jnp.arange(10, 50, 5).tolist()
-    N_list = [10, 50, 100, 200, 300, 400, 500]
+    N_list = [30, 50, 100, 200, 300, 400, 500]
     # N_list = [1000]
-
+    # N_list = [30]
     I_NMC_err_dict, I_NKQ_err_dict = {}, {}
     I_NMC_err_qmc_dict, I_NKQ_err_qmc_dict = {}, {}
 
-    num_seeds = 10
+    num_seeds = 1
 
     for N in N_list:
         T = N
