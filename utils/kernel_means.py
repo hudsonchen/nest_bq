@@ -1,6 +1,8 @@
 from utils.kernels import *
 import jax
 import jax.numpy as jnp
+from jax import config
+config.update("jax_enable_x64", True)
 
 
 def KQ_RBF_Gaussian(X, f_X, mu_X_theta, var_X_theta, scale):

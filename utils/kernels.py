@@ -279,7 +279,7 @@ def kme_Matern_12_Uniform_1d(a, b, l, y):
 @jax.jit
 def kme_Matern_12_Uniform(a, b, l, y):
     """
-    The implementation of the kernel mean embedding of the Matern three halves kernel with Uniform distribution U[a,b]
+    The implementation of the kernel mean embedding of the Matern one half kernel with Uniform distribution U[a,b]
     Only works for product Matern kernel
     
     Args:

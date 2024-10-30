@@ -119,28 +119,19 @@ def gp_posterior(X_train, y_train, X_test, kernel):
     return mu_s, cov_s  # Return mean and variance
 
 
-def negative_ei_kq(args, x, posterior, X, y, y_best, num_samples, rng_key):
+def negative_ei(args, x, posterior, X, y, y_best, u, weights):
     sampler = partial(posterior, X_train=X, y_train=y)
     mu, var = sampler(X_test=x[None, :])
-    samples = rng_key.normal(mu.squeeze(), np.sqrt(var.squeeze()), num_samples)
+    samples = (np.sqrt(var) @ u[:, None].T + mu).squeeze()
     increases = np.maximum(samples - y_best, 0)
-    # ei = np.mean(increases)
-    if args.kernel == 'rbf':
-        ei = KQ_RBF_Gaussian(jnp.array(samples[:, None]), jnp.array(increases.squeeze()), jnp.array(mu[0]), jnp.array(var))
-    elif args.kernel == 'matern':
-        # ei = KQ_Matern_12_Gaussian(jnp.array((samples - mu[0]) / np.sqrt(var[0]))[:, None], jnp.array(increases.squeeze()))
-        ei = KQ_Matern_12_Uniform(jnp.array(scipy.stats.norm.cdf( (samples - mu[0]) / np.sqrt(var[0]) ))[:, None], jnp.array(increases.squeeze()), 0., 1.)
+    ei = np.sum(increases @ weights)
+
+    # Debug code
+    z = (mu - y_best) / np.sqrt(var)
+    ei_true = (mu - y_best) * scipy.stats.norm.cdf(z) + np.sqrt(var) * scipy.stats.norm.pdf(z)
+    # Debug code
+    print(f"True EI: {ei_true}, Estimated EI: {ei}")
     return -ei.squeeze()
-
-
-def negative_ei_mc(args, x, posterior, X, y, y_best, num_samples, rng_key):
-    sampler = partial(posterior, X_train=X, y_train=y)
-    mu, var = sampler(X_test=x[None, :])
-    samples = rng_key.normal(mu.squeeze(), np.sqrt(var.squeeze()), num_samples)
-    increases = np.maximum(samples - y_best, 0)
-    ei = np.mean(increases)
-    return -ei.squeeze()
-
 
 def negative_ei_closed_form(args, x, posterior, X, y, y_best, num_samples, rng_key):
     # Get the mean (mu) and standard deviation (sigma) from the sampler
@@ -311,7 +302,8 @@ def negative_ei_look_ahead_kq(args, rng_key, x, posterior, lower_bound, upper_bo
     return -ei.squeeze()
 
 
-def optimise_sample(args, rng_key, posterior, X, y, lower_bound, upper_bound, y_best, num_samples, num_initial_sample_points):
+def optimise_sample(args, rng_key, posterior, X, y, lower_bound, upper_bound, y_best, num_samples, u, kq_weights, mc_weights,
+                    num_initial_sample_points):
     dim = X.shape[1]
     initial_conditions = rng_key.uniform(lower_bound, upper_bound, (num_initial_sample_points, dim))
 
@@ -322,10 +314,10 @@ def optimise_sample(args, rng_key, posterior, X, y, lower_bound, upper_bound, y_
         negative_utility_fn = lambda x: negative_ei_closed_form(args, x, posterior, X, y, y_best, num_samples, rng_key)
     # Expected Improvement with Monte Carlo
     elif args.utility == 'EI_mc':
-        negative_utility_fn = lambda x: negative_ei_mc(args, x, posterior, X, y, y_best, num_samples, rng_key)
+        negative_utility_fn = lambda x: negative_ei(args, x, posterior, X, y, y_best, u, mc_weights)
     # Expected Improvement with Kernel Quadrature
     elif args.utility == 'EI_kq':
-        negative_utility_fn = lambda x: negative_ei_kq(args, x, posterior, X, y, y_best, num_samples, rng_key)
+        negative_utility_fn = lambda x: negative_ei(args, x, posterior, X, y, y_best, u, kq_weights)
     elif args.utility == 'EI_look_ahead_mc':
         negative_utility_fn = lambda x: negative_ei_look_ahead_mc(args, rng_key, x, posterior, lower_bound, 
                                                                   upper_bound, X, y, 
@@ -347,22 +339,13 @@ def optimise_sample(args, rng_key, posterior, X, y, lower_bound, upper_bound, y_
     params_list = []
     fun_vals_list = []
 
-    # for init_x in initial_conditions:
-    #     result = scipy.optimize.minimize(negative_utility_fn, init_x, method='Nelder-Mead', 
-    #                                      bounds=bounds, options={'maxiter': 10, 'disp': False})
-    #     params_list.append(result.x)  # Optimized parameters
-    #     fun_vals_list.append(result.fun)  # Function value at the minimum
+    for init_x in initial_conditions:
+        result = scipy.optimize.minimize(negative_utility_fn, init_x, method='L-BFGS-B', 
+                                         bounds=bounds, options={'maxiter': 10, 'disp': False})
+        params_list.append(result.x)  # Optimized parameters
+        fun_vals_list.append(result.fun)  # Function value at the minimum
 
-    grid_x = rng_key.uniform(lower_bound, upper_bound, (10, dim))
-    # utility = np.array([negative_utility_fn(x_prime) for x_prime in grid_x])
-    from joblib import Parallel, delayed
-
-    # Parallelize the computation using joblib
-    utility = np.array(Parallel(n_jobs=-1)(delayed(negative_utility_fn)(x_prime) for x_prime in grid_x))
-
-    max_utility = np.min(utility)
-    x_star = grid_x[np.argmin(utility)]
-    # x_star = np.array(params_list)[np.argmin(np.array(fun_vals_list))]
+    x_star = np.array(params_list)[np.argmin(np.array(fun_vals_list))]
     return x_star
 
 def plot_bayes_opt(
@@ -413,7 +396,7 @@ def plot_bayes_opt(
     )
     ax.legend(loc="center left", bbox_to_anchor=(0.975, 0.5))
     plt.tight_layout()
-    plt.savefig(args.save_path + f"bo_{len(X)}.png")
+    plt.savefig(args.save_path + f"/bo_{len(X)}.png")
     plt.close()
     return
 
@@ -426,7 +409,7 @@ def main(args):
         get_data_fn = partial(load_ackley, dim=args.dim)
         lower_bound, upper_bound = np.array([-5.0]), np.array([5.0])
         ground_truth_best_y = 1.4019
-        bo_iters = 100
+        bo_iters = 20
         initial_sample_num = 5
     elif args.datasets == 'emulator':
         get_data_fn = emulator
@@ -472,12 +455,17 @@ def main(args):
 
     # BO loop
     nmse_list = []
+    mc_weights = np.ones([num_samples]) / num_samples
+    u = np.random.uniform(0, 1, (num_samples, ))
+    kq_weights = kme_Matern_12_Uniform_1d(0., 1., 1., u)
+    kq_weights = kq_weights / np.sum(kq_weights)
+
     for iter in tqdm(range(bo_iters)):
         y_best = np.max(y)
 
         # Draw a sample from the posterior, and find the minimiser of it
         x_star = optimise_sample(args, rng_key, posterior, X, y, 
-                                 lower_bound, upper_bound, y_best, num_samples, num_initial_sample_points=1)
+                                 lower_bound, upper_bound, y_best, num_samples, u, kq_weights, mc_weights, num_initial_sample_points=1)
 
         if (iter + len(y_init)) % 1 == 0 and args.dim == 1:
             plot_bayes_opt(args, rng_key, get_data_fn, posterior, X, y, x_star, lower_bound, upper_bound,)
