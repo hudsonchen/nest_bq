@@ -350,14 +350,15 @@ def run(args):
         N0 = 1
         N_total = int((1. / args.eps) * N0)
         T_total = int((1. / args.eps) * N0)
-        I_nmc = nested_monte_carlo(T_total, N_total, rng_key)
+        rng_key, _ = jax.random.split(rng_key)
+        Theta1, Theta2, u, u1, x1, u2, x2 = sample(T_total, N_total, rng_key)
         cost = N_total * T_total
+
+        I_nmc = nested_monte_carlo(Theta1, Theta2, u, u1, x1, u2, x2)
         print(f"NMC: {I_nmc} with cost {cost}")
         I_mc_err_dict[f'cost_{cost}'] = jnp.abs(I_nmc - true_value)
 
-        N_total = int((1. / args.eps) * N0)
-        T_total = int((1. / args.eps) * N0)
-        I_nkq = nested_kernel_quadrature(T_total, N_total, rng_key)
+        I_nkq = nested_kernel_quadrature(Theta1, Theta2, u, u1, x1, u2, x2)
         print(f"NKQ: {I_nkq} with cost {cost}")
         I_kq_err_dict[f'cost_{cost}'] = jnp.abs(I_nkq - true_value)
 
