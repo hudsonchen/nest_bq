@@ -361,7 +361,6 @@ def run(args):
         I_nkq = nested_kernel_quadrature(Theta1, Theta2, u, u1, x1, u2, x2)
         print(f"NKQ: {I_nkq} with cost {cost}")
         I_kq_err_dict[f'cost_{cost}'] = jnp.abs(I_nkq - true_value)
-
     
     with open(f"{args.save_path}/seed_{args.seed}_MC", 'wb') as file:
         pickle.dump(I_mc_err_dict, file)

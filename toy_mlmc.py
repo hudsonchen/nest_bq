@@ -198,7 +198,6 @@ def run(args):
         print(f"NKQ: {I_nkq} with cost {cost}")
         I_kq_err_dict[f'cost_{cost}'] = jnp.abs(I_nkq - true_value)
 
-    
     with open(f"{args.save_path}/seed_{args.seed}_MC", 'wb') as file:
         pickle.dump(I_mc_err_dict, file)
     with open(f"{args.save_path}/seed_{args.seed}_KQ", 'wb') as file:
