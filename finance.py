@@ -43,46 +43,162 @@ plt.tight_layout()
 
 
 def get_config():
-    parser = argparse.ArgumentParser(description='Conditional Bayesian Quadrature for finance data')
+    parser = argparse.ArgumentParser(description='Nested Kernel Quadrature for Financial Risk Management')
 
     # Data settings
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--save_path', type=str, default='./')
+    parser.add_argument('--multi_level', action='store_true', default=False)
+    parser.add_argument('--qmc', action='store_true', default=False)
+    parser.add_argument('--eps', type=float, default=0.01)
     args = parser.parse_args()
     return args
 
+# Hyperparameters for the Black Scholes model
+s = 0.2
+sigma = 0.3
+T_finance = 2
+t_finance = 1
+S0 = 100
+K1 = 50
+K2 = 150
 
-def run(args, N, T, use_qmc, rng_key):
-    # Hyperparameters for the Black Scholes model
-    s = 0.2
-    sigma = 0.3
-    T_finance = 2
-    t_finance = 1
-    S0 = 100
-    K1 = 50
-    K2 = 150
-    
-    def price(St, N, epsilon):
-        """
-        Computes the price ST at time T_finance.
-        ST is sampled from the conditional distribution p(ST|St).
-        Computes the loss \psi(ST) - \psi((1+s)ST) caused by the shock. 
-        Their shape is T * N
-        
-        Args:
-            St: (T, 1) the price at time t_finance
-            N: number of samples
-            
-        Returns:
-            ST: (T, N, 1)
-            f(ST): (T, N)
-        """
-        ST = St * jnp.exp(sigma * jnp.sqrt((T_finance - t_finance)) * epsilon - 0.5 * (sigma ** 2) * (T_finance - t_finance))
-        psi_ST_1 = jnp.maximum(ST - K1, 0) + jnp.maximum(ST - K2, 0) - 2 * jnp.maximum(ST - (K1 + K2) / 2, 0)
-        psi_ST_2 = jnp.maximum((1 + s) * ST - K1, 0) + jnp.maximum((1 + s) * ST - K2, 0) - 2 * jnp.maximum(
-            (1 + s) * ST - (K1 + K2) / 2, 0)
-        return ST, psi_ST_1 - psi_ST_2
+def price(St, epsilon):
+    """
+    Computes the price ST at time T_finance.
+    ST is sampled from the conditional distribution p(ST|St).
+    Computes the loss \psi(ST) - \psi((1+s)ST) caused by the shock. 
+    Their shape is T * N
 
+    Args:
+        St: (T, 1) the price at time t_finance        
+    Returns:
+        ST: (T, N, 1)
+        f(ST): (T, N)
+    """
+    ST = St * jnp.exp(sigma * jnp.sqrt((T_finance - t_finance)) * epsilon - 0.5 * (sigma ** 2) * (T_finance - t_finance))
+    psi_ST_1 = jnp.maximum(ST - K1, 0) + jnp.maximum(ST - K2, 0) - 2 * jnp.maximum(ST - (K1 + K2) / 2, 0)
+    psi_ST_2 = jnp.maximum((1 + s) * ST - K1, 0) + jnp.maximum((1 + s) * ST - K2, 0) - 2 * jnp.maximum(
+        (1 + s) * ST - (K1 + K2) / 2, 0)
+    return psi_ST_1 - psi_ST_2
+
+
+def nested_monte_carlo(Theta, u_theta, x, u_x):
+    f_val = price(Theta, x)
+    I_MC = f_val.mean(1)
+    I_NMC = jnp.maximum(I_MC, 0).mean(0)
+    return I_NMC
+
+
+def nested_kernel_quadrature(Theta, u_theta, x, u_x):
+    N = x.shape[0]
+    f_val = price(Theta, x)
+    if N > 10:
+        lengthscale = 1.0
+    else:
+        lengthscale = 3.0
+    # This is nest kernel quadrature for the inner expectation
+    scale, shift = f_val.std(), f_val.mean()
+    f_val_normalized = (f_val - shift) / scale
+    I_KQ = KQ_RBF_Gaussian_Vectorized(x[:, :, None], f_val_normalized, jnp.zeros([N, 1]), jnp.ones([N, 1]), lengthscale)
+    # I_KQ = KQ_Matern_12_Uniform_Vectorized(u_x[:, :, None], f_val_normalized, jnp.zeros([N, 1]), jnp.ones([N, 1]), scale)
+    I_KQ = I_KQ * scale + shift
+    f_I_KQ = jnp.maximum(I_KQ, 0)
+
+    # This is nest kernel quadrature for the outer expectation
+    scale, shift = f_I_KQ.std(), f_I_KQ.mean()
+    f_I_KQ_normalized = (f_I_KQ - shift) / scale
+    # I_NKQ = KQ_RBF_Gaussian(epsilon_outer, f_I_KQ.squeeze(), jnp.zeros([1]), jnp.ones([1, 1]), scale)
+    I_NKQ = KQ_Matern_12_Uniform(u_theta, f_I_KQ_normalized, jnp.zeros([1]), jnp.ones([1]), lengthscale)
+    I_NKQ = I_NKQ * scale + shift
+    return I_NKQ
+
+
+def nested_kernel_quadrature_multi_level(Theta, u_theta, x, u_x, x_prev, u_x_prev):
+    T, N = x.shape[0], x.shape[1]
+    if T > 10:
+        lengthscale = 1.0
+    else:
+        lengthscale = 1.0
+    # This is nest kernel quadrature for the inner expectation
+    f_val = price(Theta, x)
+    scale, shift = f_val.std(), f_val.mean()
+    f_val_normalized = (f_val - shift) / scale
+    I_KQ = KQ_Matern_12_Uniform_Vectorized(u_x[:, :, None], f_val_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1]), lengthscale)
+    # I_KQ = KQ_RBF_Gaussian_Vectorized(x[:, :, None], f_val_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1, 1]), lengthscale)    # I_KQ = I_KQ * scale + shift
+    I_KQ = I_KQ * scale + shift
+    f_I_KQ = jnp.maximum(I_KQ, 0)
+
+    f_val_prev = price(Theta, x_prev)
+    scale, shift = f_val_prev.std(), f_val_prev.mean()
+    f_val_prev_normalized = (f_val_prev - shift) / scale
+    I_KQ_prev = KQ_Matern_12_Uniform_Vectorized(u_x_prev[:, :, None], f_val_prev_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1]), lengthscale)
+    # I_KQ_prev = KQ_RBF_Gaussian_Vectorized(x_prev[:, :, None], f_val_prev_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1, 1]), lengthscale)
+    I_KQ_prev = I_KQ_prev * scale + shift
+    f_I_KQ_prev = jnp.maximum(I_KQ_prev, 0)
+
+    # This is nest kernel quadrature for the outer expectation
+
+    f_difference = f_I_KQ - f_I_KQ_prev
+    scale, shift = f_difference.std(), f_difference.mean()
+    f_difference_normalized = (f_difference - shift) / scale
+    I_MLKQ = KQ_Matern_12_Uniform(u_theta, f_difference_normalized, jnp.zeros([1]), jnp.ones([1]), lengthscale)
+    I_MLKQ = I_MLKQ * scale + shift
+    return I_MLKQ
+
+
+def mlmc(eps, N0, L, use_kq, rng_key):
+    rng_key, _ = jax.random.split(rng_key)
+    # Check input parameters
+    if L < 2:
+        raise ValueError('error: needs L >= 2')
+
+    # Initialisation
+    if use_kq:
+        Nl = 2 * (2 ** jnp.arange(L))
+        Tl = N0 / eps * (2 ** (-1. * jnp.arange(L)))
+    else:
+        Nl = 2 * (2 ** jnp.arange(L))
+        Tl = N0 / eps * (2 ** (-1. * jnp.arange(L)))     
+          
+    Yl = jnp.zeros(L)
+    Cl = jnp.zeros(L)
+
+    for l in range(L):
+        if l == 0:
+            N, T = int(Nl[l]), int(Tl[l]) + 1
+            rng_key, _ = jax.random.split(rng_key)
+            Theta, u_theta, x, u_x = sample(T, N, False, rng_key)
+
+            if use_kq:
+                Y = nested_kernel_quadrature(Theta, u_theta, x, u_x)
+                Yl = Yl.at[l].set(Y)
+            else:
+                Y = nested_monte_carlo(Theta, u_theta, x, u_x)
+                Yl = Yl.at[l].set(Y)
+            Cl = Cl.at[l].set(N * T)
+        else:
+            N, N_prev, T = int(Nl[l]), int(Nl[l-1]), int(Tl[l]) + 1
+            rng_key, _ = jax.random.split(rng_key)
+            Theta, u_theta, x, u_x = sample(T, N, False, rng_key)
+            x_prev, u_x_prev = x[:, :N_prev], u_x[:, :N_prev]
+
+            if use_kq:
+                Y_diff = nested_kernel_quadrature_multi_level(Theta, u_theta, x, u_x, x_prev, u_x_prev)
+                Yl = Yl.at[l].set(Y_diff)
+            else:
+                Y_prev = nested_monte_carlo(Theta, u_theta, x_prev, u_x_prev)
+                Y = nested_monte_carlo(Theta, u_theta, x, u_x)
+                Yl = Yl.at[l].set(Y - Y_prev)
+            Cl = Cl.at[l].set(N * T)
+
+    # Final estimation
+    P = Yl.sum()
+    C = Cl.sum()
+    return P, C
+
+
+def sample(T, N, use_qmc, rng_key):
     if use_qmc:
         u_outer = scipy.stats.qmc.Sobol(1).random(T)
     else:
@@ -94,124 +210,75 @@ def run(args, N, T, use_qmc, rng_key):
 
     if use_qmc:
         u_inner = [scipy.stats.qmc.Sobol(1).random(T) for _ in range(N)]
-        u_inner = np.array(u_inner).squeeze()
+        u_inner = np.array(u_inner).squeeze().T
     else:
         rng_key, _ = jax.random.split(rng_key)
         u_inner = jax.random.uniform(rng_key, shape=output_shape)
-    epsilon_inner = jax.scipy.stats.norm.ppf(u_inner).T
-    ST, loss = price(St, N, epsilon_inner)
-    
-    # Debug code
-    # ST_large, loss_large = price(St, 2000, rng_key)
-    # I = loss_large.mean(1)
-    # Debug code
-
-    # Nested Monte Carlo
-    I_MC = loss.mean(1)
-    I_NMC = jnp.maximum(I_MC, 0).mean(0)
-
-    # This is nest kernel quadrature for the inner expectation
-    if N < 50:
-        scale = 1.
-    else:
-        scale = 1.
-    mu_ST_St = -sigma ** 2 * (T_finance - t_finance) / 2 + jnp.log(St)
-    std_ST_St = jnp.sqrt(sigma ** 2 * (T_finance - t_finance)) * jnp.ones_like(St)
-    # I_KQ = KQ_log_RBF_log_Gaussian_Vectorized(ST[:, :, None], loss, mu_ST_St, std_ST_St, scale)
-    # I_KQ = KQ_RBF_Gaussian_Vectorized(epsilon_inner[:, :, None], loss, jnp.zeros([N, 1]), jnp.ones([N, 1]), scale)
-    I_KQ = KQ_Matern_12_Uniform_Vectorized(u_inner[:, :, None], loss, jnp.zeros([N, 1]), jnp.ones([N, 1]), scale)
-    f_I_KQ = jnp.maximum(I_KQ, 0)
-
-    # This is nest kernel quadrature for the outer expectation
-    mu_St = -sigma ** 2 * t_finance / 2 + jnp.log(S0)
-    std_St = jnp.sqrt(sigma ** 2 * (t_finance))
-    # I_NKQ = KQ_log_RBF_log_Gaussian(St, f_I_KQ.squeeze(), mu_St, std_St, scale)
-    # I_NKQ = KQ_RBF_Gaussian(epsilon_outer, f_I_KQ.squeeze(), jnp.zeros([1]), jnp.ones([1, 1]), scale)
-    I_NKQ = KQ_Matern_12_Uniform(u_outer, f_I_KQ, jnp.zeros([1]), jnp.ones([1]), scale)
-    return I_NMC, I_NKQ
+    epsilon_inner = jax.scipy.stats.norm.ppf(u_inner)
+    return St, u_outer, epsilon_inner, u_inner
 
 
-def main(args):
+def run(args):
     rng_key = jax.random.PRNGKey(args.seed)
     true_value = 3.077
-
     print(f"True value: {true_value}")
-    # N_list = jnp.arange(10, 50, 5).tolist()
-    # T_list = jnp.arange(10, 50, 5).tolist()
-    N_list = [30, 50, 100, 200, 300, 400, 500]
-    # N_list = [1000]
-    # N_list = [30]
-    I_NMC_err_dict, I_NKQ_err_dict = {}, {}
-    I_NMC_err_qmc_dict, I_NKQ_err_qmc_dict = {}, {}
 
-    num_seeds = 1
+    L = 5
+    I_mc_err_dict = {}
+    I_kq_err_dict = {}
 
-    for N in N_list:
-        T = N
-        I_NMC_errors, I_NKQ_errors = [], []
-        I_NMC_qmc_errors, I_NKQ_qmc_errors = [], []
+    N0 = int(2 ** L * args.eps) + 1
+    
+    if args.multi_level:
+        use_kq = False
+        I_MLMC_nmc, cost = mlmc(args.eps, N0, L, use_kq, rng_key)
+        print(f"MLMC MC: {I_MLMC_nmc} with cost {cost}")
+        I_mc_err_dict[f'cost_{cost}'] = jnp.abs(I_MLMC_nmc - true_value)
 
-        for s in range(num_seeds):
-            rng_key, _ = jax.random.split(rng_key)
-            use_qmc = False
-            I_NMC, I_NKQ = run(args, N, T, use_qmc, rng_key)
+        use_kq = True
+        I_MLMC_nkq, cost = mlmc(args.eps, N0, L, use_kq, rng_key)
+        print(f"MLMC KQ: {I_MLMC_nkq} with cost {cost}")
+        I_kq_err_dict[f'cost_{cost}'] = jnp.abs(I_MLMC_nkq - true_value)
+    else:
+        N0 = 1
+        N_total = int((1. / args.eps) * N0)
+        T_total = int((1. / args.eps) * N0)
+        rng_key, _ = jax.random.split(rng_key)
+        Theta, u_theta, x, u_x = sample(T_total, N_total, args.qmc, rng_key)
+        cost = N_total * T_total
 
-            use_qmc = True
-            rng_key, _ = jax.random.split(rng_key)
-            I_NMC_qmc, I_NKQ_qmc = run(args, N, T, use_qmc, rng_key)
+        I_nmc = nested_monte_carlo(Theta, u_theta, x, u_x)
+        print(f"NMC (QMC {args.qmc}): {I_nmc} with cost {cost}")
+        I_mc_err_dict[f'cost_{cost}'] = jnp.abs(I_nmc - true_value)
 
-            I_NMC_errors.append(jnp.abs(I_NMC - true_value))
-            I_NKQ_errors.append(jnp.abs(I_NKQ - true_value))
-            I_NMC_qmc_errors.append(jnp.abs(I_NMC_qmc - true_value))
-            I_NKQ_qmc_errors.append(jnp.abs(I_NKQ_qmc - true_value))
-        
-        I_NMC_err = jnp.median(jnp.array(I_NMC_errors))
-        I_NKQ_err = jnp.median(jnp.array(I_NKQ_errors))
-        I_NKQ_err_qmc = jnp.median(jnp.array(I_NKQ_qmc_errors))
-        I_NMC_err_qmc = jnp.median(jnp.array(I_NMC_qmc_errors))
-        I_NMC_err_dict[(N, T)], I_NKQ_err_dict[(N, T)] = I_NMC_err, I_NKQ_err
-        I_NMC_err_qmc_dict[(N, T)], I_NKQ_err_qmc_dict[(N, T)] = I_NMC_err_qmc, I_NKQ_err_qmc
-
-        methods = ["NKQ", "NMC", "NKQ (QMC)", "NMC (QMC)"]
-        errs = [I_NKQ_err, I_NMC_err, I_NKQ_err_qmc, I_NMC_err_qmc]
-
-        print(f"T = {T} and N = {N}")
-        print("========================================")
-        print("Methods:    " + " ".join([f"{method:<10}" for method in methods]))
-        print("ASE:       " + " ".join([f"{value:<10.6f}" for value in errs]))
-        print("========================================\n\n")
-
-    with open(f"{args.save_path}/seed_{args.seed}__NKQ", 'wb') as file:
-        pickle.dump(I_NKQ_err_dict, file)
-    with open(f"{args.save_path}/seed_{args.seed}__NMC", 'wb') as file:
-        pickle.dump(I_NMC_err_dict, file)
-    with open(f"{args.save_path}/seed_{args.seed}__NKQ_QMC", 'wb') as file:
-        pickle.dump(I_NKQ_err_qmc_dict, file)
-    with open(f"{args.save_path}/seed_{args.seed}__NMC_QMC", 'wb') as file:
-        pickle.dump(I_NMC_err_qmc_dict, file)
+        I_nkq = nested_kernel_quadrature(Theta, u_theta, x, u_x)
+        print(f"NKQ (QMC {args.qmc}): {I_nkq} with cost {cost}")
+        I_kq_err_dict[f'cost_{cost}'] = jnp.abs(I_nkq - true_value)
+    
+    with open(f"{args.save_path}/seed_{args.seed}_MC", 'wb') as file:
+        pickle.dump(I_mc_err_dict, file)
+    with open(f"{args.save_path}/seed_{args.seed}_KQ", 'wb') as file:
+        pickle.dump(I_kq_err_dict, file)
     return
-
 
 def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
     args.save_path += f'results/finance/'
-    args.save_path += f"seed_{args.seed}"
+    args.save_path += f"multi_level_{args.multi_level}__qmc_{args.qmc}__eps_{args.eps}__seed_{args.seed}"
     os.makedirs(args.save_path, exist_ok=True)
-    os.makedirs(f"{args.save_path}/figures/", exist_ok=True)
     return args
 
 
 if __name__ == '__main__':
     args = get_config()
     args = create_dir(args)
-    print(f'Device is {jax.devices()}')
-    print(args.seed)
-    main(args)
+    run(args)
     save_path = args.save_path
     print(f"\nChanging save path from\n\n{save_path}\n\nto\n\n{save_path}__complete\n")
+    import shutil
     if os.path.exists(f"{save_path}__complete"):
         shutil.rmtree(f"{save_path}__complete")
     os.rename(save_path, f"{save_path}__complete")
     print("\n------------------- DONE -------------------\n")
-
+    print("Finished running")
