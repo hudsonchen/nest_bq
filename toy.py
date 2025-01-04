@@ -5,6 +5,7 @@ import pickle
 import argparse
 import os
 import pwd
+from scipy.stats.qmc import Sobol
 from utils.kernel_means import *
 
 jax.config.update('jax_platform_name', 'cpu')
@@ -29,6 +30,7 @@ def get_config():
     parser.add_argument('--N_T_ratio', type=float, default=1.)
     parser.add_argument('--d', type=int, default=1)
     parser.add_argument('--scale', type=float, default=1.0)
+    parser.add_argument('--qmc', action='store_true', default=False)
     args = parser.parse_args()
     return args
 
@@ -48,17 +50,30 @@ def f(x):
 def g(x, theta):
     return (x ** 2.5).sum(-1) + (theta[:, None, :] ** 2.5).sum(-1)
 
-def simulate_theta(T, d, rng_key):
+def simulate_theta(T, d, use_qmc, rng_key):
     rng_key, _ = jax.random.split(rng_key)
-    Theta = jax.random.uniform(rng_key, shape=(T, d), minval=0., maxval=1.)
+    if use_qmc:
+        sobol_engine = Sobol(d=d, scramble=True)
+        qmc_points = sobol_engine.random_base2(m=int(jnp.log2(T)) + 1)
+        Theta = qmc_points[:T]
+    else:
+        Theta = jax.random.uniform(rng_key, shape=(T, d), minval=0., maxval=1.)
     return Theta
 
 
-def simulate_x_theta(N, d, Theta, rng_key):
-    def simulate_x_per_theta(N, theta, rng_key):
+def simulate_x_theta(N, d, Theta, use_qmc, rng_key):
+    def simulate_x_per_theta_qmc(N, theta, rng_key):
         x = jax.random.uniform(rng_key, shape=(N, d), minval=0., maxval=1.)
         return x
-    vmap_func = jax.vmap(simulate_x_per_theta, in_axes=(None, 0, 0))
+    def simulate_x_per_theta(N, theta, rng_key):
+        sobol_engine = Sobol(d=d, scramble=True)
+        qmc_points = sobol_engine.random_base2(m=int(jnp.log2(N)) + 1)
+        x = qmc_points[:N]
+        return x
+    if use_qmc:
+        vmap_func = jax.vmap(simulate_x_per_theta_qmc, in_axes=(None, 0, 0))
+    else:
+        vmap_func = jax.vmap(simulate_x_per_theta, in_axes=(None, 0, 0))
     X = vmap_func(N, Theta, jax.random.split(rng_key, len(Theta)))
     return X
 
@@ -72,8 +87,8 @@ def run(args, N, T, rng_key):
     # I = \E_{theta} f ( \E_{x | theta} [g(x, theta)] )
 
     rng_key, _ = jax.random.split(rng_key)
-    Theta = simulate_theta(T, args.d, rng_key)
-    X = simulate_x_theta(N, args.d, Theta, rng_key)
+    Theta = simulate_theta(T, args.d, args.qmc, rng_key)
+    X = simulate_x_theta(N, args.d, Theta, args.qmc, rng_key)
     g_X = g(X, Theta)
 
     # This is nested Monte Carlo
@@ -117,7 +132,8 @@ def main(args):
     # T_list = jnp.arange(10, 50, 5).tolist()
     if args.N_T_ratio == 1.:
         if args.d < 10:
-            N_list = [10, 30, 50, 70, 100, 200, 300, 400, 500, 600, 800, 1000]
+            # N_list = [10, 30, 50, 70, 100, 200, 300, 400, 500, 600, 800, 1000]
+            N_list = [10, 30, 50, 70, 100, 200, 300]
         else:
             N_list = [10, 30, 50, 70, 100, 200, 300, 400, 500, 600, 800]
     elif args.N_T_ratio == 0.5:
@@ -168,7 +184,10 @@ def main(args):
 def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
-    args.save_path += f'results/toy/'
+    if args.qmc:
+        args.save_path += f'results/toy_qmc/'
+    else:
+        args.save_path += f'results/toy/'
     args.save_path += f"dim_{args.d}__kernel_x_{args.kernel_x}__kernel_theta_{args.kernel_theta}"
     args.save_path += f"__N_T_ratio_{args.N_T_ratio}__scale_{args.scale}"
     os.makedirs(args.save_path, exist_ok=True)
