@@ -30,6 +30,7 @@ def get_config():
     parser.add_argument('--N_T_ratio', type=float, default=1.)
     parser.add_argument('--d', type=int, default=1)
     parser.add_argument('--scale', type=float, default=1.0)
+    parser.add_argument('--lmbda', type=float, default=1e-1)
     parser.add_argument('--qmc', action='store_true', default=False)
     args = parser.parse_args()
     return args
@@ -103,24 +104,25 @@ def run(args, N, T, rng_key):
     a, b = 0, 1
     mu, var = jnp.zeros([N, 1]), jnp.ones([N, 1, 1])
     scale = args.scale
+    lmbda = args.lmbda * (N ** (-2 / args.d) )
     if args.kernel_x == "rbf":
-        I_theta_KQ = KQ_RBF_Uniform_Vectorized(X, g_X, a, b, scale)
-        # I_theta_KQ = KQ_RBF_Gaussian_Vectorized(X, g_X, mu, var)
+        I_theta_KQ = KQ_RBF_Uniform_Vectorized(X, g_X, a, b, scale, lmbda)
     elif args.kernel_x == "matern":
-        I_theta_KQ = KQ_Matern_32_Uniform_Vectorized(X, g_X, a * jnp.ones([T, args.d]), b * jnp.ones([T, args.d]), scale)
+        I_theta_KQ = KQ_Matern_32_Uniform_Vectorized(X, g_X, a * jnp.ones([T, args.d]), b * jnp.ones([T, args.d]), scale, lmbda)
     elif args.kernel_x == "matern_12":
-        I_theta_KQ = KQ_Matern_12_Uniform_Vectorized(X, g_X, a * jnp.ones([T, args.d]), b * jnp.ones([T, args.d]), scale)
+        I_theta_KQ = KQ_Matern_12_Uniform_Vectorized(X, g_X, a * jnp.ones([T, args.d]), b * jnp.ones([T, args.d]), scale, lmbda)
 
     f_I_theta_KQ = f(I_theta_KQ)
     a, b = 0, 1
-    if args.kernel_theta == "rbf":
-        I_NKQ = KQ_RBF_Uniform(Theta, f_I_theta_KQ, a, b, scale)
-    elif args.kernel_theta == "matern":
-        I_NKQ = KQ_Matern_32_Uniform(Theta, f_I_theta_KQ, a * jnp.ones([args.d]), b * jnp.ones([args.d]), scale)
-    elif args.kernel_theta == "matern_12":
-        I_NKQ = KQ_Matern_12_Uniform(Theta, f_I_theta_KQ, a * jnp.ones([args.d]), b * jnp.ones([args.d]), scale)
+    scale = args.scale
+    lmbda = args.lmbda * (T ** (-2 / args.d) )
     
-    pause = True
+    if args.kernel_theta == "rbf":
+        I_NKQ = KQ_RBF_Uniform(Theta, f_I_theta_KQ, a, b, scale, lmbda)
+    elif args.kernel_theta == "matern":
+        I_NKQ = KQ_Matern_32_Uniform(Theta, f_I_theta_KQ, a * jnp.ones([args.d]), b * jnp.ones([args.d]), scale, lmbda)
+    elif args.kernel_theta == "matern_12":
+        I_NKQ = KQ_Matern_12_Uniform(Theta, f_I_theta_KQ, a * jnp.ones([args.d]), b * jnp.ones([args.d]), scale, lmbda)
     return I_NMC, I_NKQ
 
 
@@ -132,8 +134,8 @@ def main(args):
     # T_list = jnp.arange(10, 50, 5).tolist()
     if args.N_T_ratio == 1.:
         if args.d < 10:
-            # N_list = [10, 30, 50, 70, 100, 200, 300, 400, 500, 600, 800, 1000]
-            N_list = [10, 30, 50, 70, 100, 200, 300]
+            N_list = [10, 30, 50, 70, 100, 200, 300, 400, 500, 600, 800, 1000]
+            # N_list = [10, 30, 50, 70, 100, 200, 300]
         else:
             N_list = [10, 30, 50, 70, 100, 200, 300, 400, 500, 600, 800]
     elif args.N_T_ratio == 0.5:
@@ -189,7 +191,7 @@ def create_dir(args):
     else:
         args.save_path += f'results/toy/'
     args.save_path += f"dim_{args.d}__kernel_x_{args.kernel_x}__kernel_theta_{args.kernel_theta}"
-    args.save_path += f"__N_T_ratio_{args.N_T_ratio}__scale_{args.scale}"
+    args.save_path += f"__N_T_ratio_{args.N_T_ratio}__scale_{args.scale}__lmbda_{args.lmbda}"
     os.makedirs(args.save_path, exist_ok=True)
     return args
 
