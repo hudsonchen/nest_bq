@@ -221,43 +221,59 @@ def nested_monte_carlo(Theta1, Theta2, u, u1, x1, u2, x2):
     return I_part_one, I_part_two_1, I_part_two_2
 
 def nested_kernel_quadrature(Theta1, Theta2, u, u1, x1, u2, x2):
+    N, T = x1.shape[0], x1.shape[1]
     f1_val, f2_val = f1(Theta1, x1), f2(Theta2, x2)
     scale_1, shift_1, scale_2, shift_2 = f1_val.std(1), f1_val.mean(1), f2_val.std(1), f2_val.mean(1)
     f1_val_normalized = (f1_val - shift_1[:, None]) / scale_1[:, None]
     f2_val_normalized = (f2_val - shift_2[:, None]) / scale_2[:, None]
-    f1_val_kq = KQ_Matern_12_Gaussian_Vectorized(u1, f1_val_normalized) 
-    f2_val_kq = KQ_Matern_12_Gaussian_Vectorized(u2, f2_val_normalized)
+    lmbda = 0.001 * N ** (-1)
+    if T > 100:
+        for t in range(T):
+            f1_val_kq_ = KQ_Matern_12_Gaussian(u1[t, :, :], f1_val_normalized[t], lmbda)
+            f2_val_kq_ = KQ_Matern_12_Gaussian(u2[t, :, :], f2_val_normalized[t], lmbda)
+            if t == 0:
+                f1_val_kq = f1_val_kq_
+                f2_val_kq = f2_val_kq_
+            else:
+                f1_val_kq = jnp.vstack([f1_val_kq, f1_val_kq_])
+                f2_val_kq = jnp.vstack([f2_val_kq, f2_val_kq_])
+        f1_val_kq = f1_val_kq.squeeze()
+        f2_val_kq = f2_val_kq.squeeze()
+    else:
+        f1_val_kq = KQ_Matern_12_Gaussian_Vectorized(u1, f1_val_normalized, lmbda) 
+        f2_val_kq = KQ_Matern_12_Gaussian_Vectorized(u2, f2_val_normalized, lmbda)
     f1_val_kq, f2_val_kq = f1_val_kq * scale_1 + shift_1, f2_val_kq * scale_2 + shift_2
     f_max = jnp.maximum(f1_val_kq, f2_val_kq)
     scale, shift = f_max.std(), f_max.mean()
     f_max_normalized = (f_max - shift) / scale
-    I_part_one = KQ_Matern_12_Gaussian(u, f_max_normalized)
+    I_part_one = KQ_Matern_12_Gaussian(u, f_max_normalized, lmbda)
     I_part_one = I_part_one * scale + shift
 
     scale, shift = f1_val_kq.std(), f1_val_kq.mean()
     f1_val_kq_normalized = (f1_val_kq - shift) / scale
-    I_part_two_1 = KQ_Matern_12_Gaussian(u, f1_val_kq_normalized) * scale + shift
+    I_part_two_1 = KQ_Matern_12_Gaussian(u, f1_val_kq_normalized, lmbda) * scale + shift
     scale, shift = f2_val_kq.std(), f2_val_kq.mean()
     f2_val_kq_normalized = (f2_val_kq - shift) / scale
-    I_part_two_2 = KQ_Matern_12_Gaussian(u, f2_val_kq_normalized) * scale + shift
+    I_part_two_2 = KQ_Matern_12_Gaussian(u, f2_val_kq_normalized, lmbda) * scale + shift
     return I_part_one, I_part_two_1, I_part_two_2
 
 def nested_kernel_quadrature_multi_level(Theta1, Theta2, u, u1_prev, x1_prev, u2_prev, x2_prev,
                                          u1, x1, u2, x2):
     f1_val, f2_val = f1(Theta1, x1), f2(Theta2, x2)
-    scale_1, shift_1, scale_2, shift_2 = f1_val.std(), f1_val.mean(), f2_val.std(), f2_val.mean()
-    f1_val_normalized = (f1_val - shift_1) / scale_1
-    f2_val_normalized = (f2_val - shift_2) / scale_2
-    f1_val_kq = KQ_Matern_12_Gaussian_Vectorized(u1, f1_val_normalized) 
-    f2_val_kq = KQ_Matern_12_Gaussian_Vectorized(u2, f2_val_normalized)
+    scale_1, shift_1, scale_2, shift_2 = f1_val.std(1), f1_val.mean(1), f2_val.std(1), f2_val.mean(1)
+    f1_val_normalized = (f1_val - shift_1[:, None]) / scale_1[:, None]
+    f2_val_normalized = (f2_val - shift_2[:, None]) / scale_2[:, None]
+    lmbda = 1e-6
+    f1_val_kq = KQ_Matern_12_Gaussian_Vectorized(u1, f1_val_normalized, lmbda) 
+    f2_val_kq = KQ_Matern_12_Gaussian_Vectorized(u2, f2_val_normalized, lmbda)
     f1_val_kq, f2_val_kq = f1_val_kq * scale_1 + shift_1, f2_val_kq * scale_2 + shift_2
 
     f1_val_prev, f2_val_prev = f1(Theta1, x1_prev), f2(Theta2, x2_prev)
-    scale_1_prev, shift_1_prev, scale_2_prev, shift_2_prev = f1_val_prev.std(), f1_val_prev.mean(), f2_val_prev.std(), f2_val_prev.mean()
-    f1_val_normalized_prev = (f1_val_prev - shift_1_prev) / scale_1_prev
-    f2_val_normalized_prev = (f2_val_prev - shift_2_prev) / scale_2_prev
-    f1_val_kq_prev = KQ_Matern_12_Gaussian_Vectorized(u1_prev, f1_val_normalized_prev)
-    f2_val_kq_prev = KQ_Matern_12_Gaussian_Vectorized(u2_prev, f2_val_normalized_prev)
+    scale_1_prev, shift_1_prev, scale_2_prev, shift_2_prev = f1_val_prev.std(1), f1_val_prev.mean(1), f2_val_prev.std(1), f2_val_prev.mean(1)
+    f1_val_normalized_prev = (f1_val_prev - shift_1_prev[:, None]) / scale_1_prev[:, None]
+    f2_val_normalized_prev = (f2_val_prev - shift_2_prev[:, None]) / scale_2_prev[:, None]
+    f1_val_kq_prev = KQ_Matern_12_Gaussian_Vectorized(u1_prev, f1_val_normalized_prev, lmbda)
+    f2_val_kq_prev = KQ_Matern_12_Gaussian_Vectorized(u2_prev, f2_val_normalized_prev, lmbda)
     f1_val_kq_prev, f2_val_kq_prev = f1_val_kq_prev * scale_1_prev + shift_1_prev, f2_val_kq_prev * scale_2_prev + shift_2_prev
 
     # part one
@@ -266,19 +282,19 @@ def nested_kernel_quadrature_multi_level(Theta1, Theta2, u, u1_prev, x1_prev, u2
     f_difference = f_max - f_max_prev
     scale, shift = f_difference.std(), f_difference.mean()
     f_difference_normalized = (f_difference - shift) / scale
-    I_part_one = KQ_Matern_12_Gaussian(u, f_difference_normalized)
+    I_part_one = KQ_Matern_12_Gaussian(u, f_difference_normalized, lmbda)
     I_part_one = I_part_one * scale + shift
 
     # part two
     f_difference_1 = f1_val_kq - f1_val_kq_prev
     scale, shift = f_difference_1.std(), f_difference_1.mean()
     f_difference_normalized_1 = (f_difference_1 - shift) / scale
-    I_part_two_1 = KQ_Matern_12_Gaussian(u, f_difference_normalized_1)
+    I_part_two_1 = KQ_Matern_12_Gaussian(u, f_difference_normalized_1, lmbda)
     I_part_two_1 = I_part_two_1 * scale + shift
     f_difference_2 = f2_val_kq - f2_val_kq_prev
     scale, shift = f_difference_2.std(), f_difference_2.mean()
     f_difference_normalized_2 = (f_difference_2 - shift) / scale
-    I_part_two_2 = KQ_Matern_12_Gaussian(u, f_difference_normalized_2)
+    I_part_two_2 = KQ_Matern_12_Gaussian(u, f_difference_normalized_2, lmbda)
     I_part_two_2 = I_part_two_2 * scale + shift
     return I_part_one, I_part_two_1, I_part_two_2
 
