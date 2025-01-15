@@ -222,9 +222,9 @@ def nested_monte_carlo(Theta1, Theta2, u, u1, x1, u2, x2):
 
 def nested_kernel_quadrature(Theta1, Theta2, u, u1, x1, u2, x2):
     f1_val, f2_val = f1(Theta1, x1), f2(Theta2, x2)
-    scale_1, shift_1, scale_2, shift_2 = f1_val.std(), f1_val.mean(), f2_val.std(), f2_val.mean()
-    f1_val_normalized = (f1_val - shift_1) / scale_1
-    f2_val_normalized = (f2_val - shift_2) / scale_2
+    scale_1, shift_1, scale_2, shift_2 = f1_val.std(1), f1_val.mean(1), f2_val.std(1), f2_val.mean(1)
+    f1_val_normalized = (f1_val - shift_1[:, None]) / scale_1[:, None]
+    f2_val_normalized = (f2_val - shift_2[:, None]) / scale_2[:, None]
     f1_val_kq = KQ_Matern_12_Gaussian_Vectorized(u1, f1_val_normalized) 
     f2_val_kq = KQ_Matern_12_Gaussian_Vectorized(u2, f2_val_normalized)
     f1_val_kq, f2_val_kq = f1_val_kq * scale_1 + shift_1, f2_val_kq * scale_2 + shift_2

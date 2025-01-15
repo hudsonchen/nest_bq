@@ -201,7 +201,6 @@ def main(args):
                 acq_function=acqf, bounds=bounds, q=args.q * 2, num_restarts=10, raw_samples=20
             )
             candidate = candidate[:args.q, :]
-        # Evaluate the objective at the new candidate
         new_y = load_data(candidate)
         rewards.append(max(rewards[-1], new_y.max().item()))   # Update max reward tracking
         # Update training data and re-fit

@@ -91,16 +91,26 @@ def nested_monte_carlo(Theta, u_theta, x, u_x):
 
 
 def nested_kernel_quadrature(Theta, u_theta, x, u_x):
-    N = x.shape[0]
+    N, T = x.shape[0], x.shape[1]
     f_val = price(Theta, x)
     if N > 10:
         lengthscale = 1.0
     else:
         lengthscale = 3.0
     # This is nest kernel quadrature for the inner expectation
-    scale, shift = f_val.std(), f_val.mean()
-    f_val_normalized = (f_val - shift) / scale
-    I_KQ = KQ_RBF_Gaussian_Vectorized(x[:, :, None], f_val_normalized, jnp.zeros([N, 1]), jnp.ones([N, 1]), lengthscale)
+    scale, shift = f_val.std(1), f_val.mean(1)
+    f_val_normalized = (f_val - shift[:, None]) / scale[:, None]
+    lmbda = 0.01 * T ** (-1)
+    if T > 100:
+        for t in range(T):
+            I_KQ_ = KQ_RBF_Gaussian(x[t, :, None], f_val_normalized[t], jnp.zeros([1]), jnp.ones([1, 1]), lengthscale, lmbda)
+            if t == 0:
+                I_KQ = I_KQ_
+            else:
+                I_KQ = jnp.vstack([I_KQ, I_KQ_])
+        I_KQ = I_KQ.squeeze()
+    else:
+        I_KQ = KQ_RBF_Gaussian_Vectorized(x[:, :, None], f_val_normalized, jnp.zeros([N, 1]), jnp.ones([N, 1]), lengthscale, lmbda)
     # I_KQ = KQ_Matern_12_Uniform_Vectorized(u_x[:, :, None], f_val_normalized, jnp.zeros([N, 1]), jnp.ones([N, 1]), scale)
     I_KQ = I_KQ * scale + shift
     f_I_KQ = jnp.maximum(I_KQ, 0)
@@ -109,7 +119,7 @@ def nested_kernel_quadrature(Theta, u_theta, x, u_x):
     scale, shift = f_I_KQ.std(), f_I_KQ.mean()
     f_I_KQ_normalized = (f_I_KQ - shift) / scale
     # I_NKQ = KQ_RBF_Gaussian(epsilon_outer, f_I_KQ.squeeze(), jnp.zeros([1]), jnp.ones([1, 1]), scale)
-    I_NKQ = KQ_Matern_12_Uniform(u_theta, f_I_KQ_normalized, jnp.zeros([1]), jnp.ones([1]), lengthscale)
+    I_NKQ = KQ_Matern_12_Uniform(u_theta, f_I_KQ_normalized, jnp.zeros([1]), jnp.ones([1]), lengthscale, lmbda)
     I_NKQ = I_NKQ * scale + shift
     return I_NKQ
 
@@ -122,9 +132,10 @@ def nested_kernel_quadrature_multi_level(Theta, u_theta, x, u_x, x_prev, u_x_pre
         lengthscale = 1.0
     # This is nest kernel quadrature for the inner expectation
     f_val = price(Theta, x)
-    scale, shift = f_val.std(), f_val.mean()
-    f_val_normalized = (f_val - shift) / scale
-    I_KQ = KQ_Matern_12_Uniform_Vectorized(u_x[:, :, None], f_val_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1]), lengthscale)
+    scale, shift = f_val.std(1), f_val.mean(1)
+    f_val_normalized = (f_val - shift[:, None]) / scale[:, None]
+    lmbda = 0.1 * T ** (-1)
+    I_KQ = KQ_Matern_12_Uniform_Vectorized(u_x[:, :, None], f_val_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1]), lengthscale, lmbda)
     # I_KQ = KQ_RBF_Gaussian_Vectorized(x[:, :, None], f_val_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1, 1]), lengthscale)    # I_KQ = I_KQ * scale + shift
     I_KQ = I_KQ * scale + shift
     f_I_KQ = jnp.maximum(I_KQ, 0)
@@ -132,7 +143,7 @@ def nested_kernel_quadrature_multi_level(Theta, u_theta, x, u_x, x_prev, u_x_pre
     f_val_prev = price(Theta, x_prev)
     scale, shift = f_val_prev.std(), f_val_prev.mean()
     f_val_prev_normalized = (f_val_prev - shift) / scale
-    I_KQ_prev = KQ_Matern_12_Uniform_Vectorized(u_x_prev[:, :, None], f_val_prev_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1]), lengthscale)
+    I_KQ_prev = KQ_Matern_12_Uniform_Vectorized(u_x_prev[:, :, None], f_val_prev_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1]), lengthscale, lmbda)
     # I_KQ_prev = KQ_RBF_Gaussian_Vectorized(x_prev[:, :, None], f_val_prev_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1, 1]), lengthscale)
     I_KQ_prev = I_KQ_prev * scale + shift
     f_I_KQ_prev = jnp.maximum(I_KQ_prev, 0)
@@ -142,7 +153,7 @@ def nested_kernel_quadrature_multi_level(Theta, u_theta, x, u_x, x_prev, u_x_pre
     f_difference = f_I_KQ - f_I_KQ_prev
     scale, shift = f_difference.std(), f_difference.mean()
     f_difference_normalized = (f_difference - shift) / scale
-    I_MLKQ = KQ_Matern_12_Uniform(u_theta, f_difference_normalized, jnp.zeros([1]), jnp.ones([1]), lengthscale)
+    I_MLKQ = KQ_Matern_12_Uniform(u_theta, f_difference_normalized, jnp.zeros([1]), jnp.ones([1]), lengthscale, lmbda)
     I_MLKQ = I_MLKQ * scale + shift
     return I_MLKQ
 
