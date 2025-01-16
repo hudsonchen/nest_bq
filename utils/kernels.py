@@ -368,14 +368,15 @@ def kme_RBF_uniform(a, b, l, y):
         a: float (lower bound)
         b: float (upper bound)
         l: float
-        y: (M, 1)
+        y: (M, D)
 
     Returns:
         kernel mean embedding: (M, )
     """
     kme_RBF_uniform_func_ = partial(kme_RBF_uniform_func, a, b, l)
     kme_RBF_uniform_vmap_func = jax.vmap(kme_RBF_uniform_func_)
-    return kme_RBF_uniform_vmap_func(y)
+    kme_all_d = kme_RBF_uniform_vmap_func(y)
+    return jnp.prod(kme_all_d, axis=1)
 
 
 @jax.jit

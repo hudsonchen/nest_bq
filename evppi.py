@@ -127,9 +127,11 @@ def sample_theta(T, use_qmc, rng_key):
     if use_qmc:
         sobol_engine = Sobol(d=2, scramble=True)
         u = sobol_engine.random(T)
+        u = norm.ppf(u)
     else:
         u = jax.random.uniform(rng_key, shape=(T, 2))
-    Theta = norm.ppf(u) @ jnp.linalg.cholesky(Theta_sigma) + Theta_mean
+        u = norm.ppf(u)
+    Theta = u @ jnp.linalg.cholesky(Theta_sigma) + Theta_mean
     Theta1 = Theta[:, 0][:, None]
     Theta2 = Theta[:, 1][:, None]
     return Theta1, Theta2, u
@@ -166,7 +168,7 @@ def sample_x_theta(N, Theta1, Theta2, use_qmc, rng_key):
     mean_1, sigma_1 = f1_cond_dist_fn(theta=Theta1)
     T = Theta1.shape[0]
 
-    rng_keys = jax.random.split(rng_key, T)
+    rng_key, _ = jax.random.split(rng_key)
     if use_qmc:
         # sobol_engine = Sobol(d=9, scramble=True)
         # qmc_points = sobol_engine.random(T * N)  # Generate all points
@@ -184,10 +186,12 @@ def sample_x_theta(N, Theta1, Theta2, use_qmc, rng_key):
             delayed(generate_qmc_block)(seed, N) for seed in seeds
         )
         u1 = jnp.array(qmc_points)  # Shape: (T, N, d)
+        u1 = norm.ppf(u1)
     else:
         u1 = jax.random.uniform(rng_key, shape=(T, N, 9))
+        u1 = norm.ppf(u1)
     L1 = jnp.linalg.cholesky(sigma_1)
-    x1= norm.ppf(u1) @ L1 + mean_1[:, None, :]
+    x1= u1 @ L1 + mean_1[:, None, :]
     
     f2_cond_dist_fn = partial(conditional_distribution, joint_mean=ThetaX_mean, joint_covariance=ThetaX_sigma,
                               dimensions_theta=[13], dimensions_x=[3, 10, 11, 12, 14, 15, 16, 17, 18])
@@ -207,11 +211,12 @@ def sample_x_theta(N, Theta1, Theta2, use_qmc, rng_key):
             delayed(generate_qmc_block)(seed, N) for seed in seeds
         )
         u2 = jnp.array(qmc_points)  # Shape: (T, N, d)
+        u2 = norm.ppf(u2)
     else:
         u2 = jax.random.uniform(rng_key, shape=(T, N, 9))
-
+        u2 = norm.ppf(u2)
     L2 = jnp.linalg.cholesky(sigma_2)
-    x2 = norm.ppf(u2) @ L2 + mean_2[:, None, :]
+    x2 = u2 @ L2 + mean_2[:, None, :]
     return u1, x1, u2, x2
 
 
@@ -257,11 +262,11 @@ def nested_kernel_quadrature(args, Theta1, Theta2, u, u1, x1, u2, x2):
         f2_val_kq = f2_val_kq.squeeze()
     else:
         if args.kernel == 'matern':
-            f1_val_kq = KQ_Matern_12_Uniform_Vectorized(u1, f1_val_normalized, lmbda) 
-            f2_val_kq = KQ_Matern_12_Uniform_Vectorized(u2, f2_val_normalized, lmbda)
+            f1_val_kq = KQ_Matern_12_Gaussian_Vectorized(u1, f1_val_normalized, lmbda) 
+            f2_val_kq = KQ_Matern_12_Gaussian_Vectorized(u2, f2_val_normalized, lmbda)
         elif args.kernel == 'rbf':
-            f1_val_kq = KQ_RBF_Uniform_Vectorized(u1, f1_val_normalized, 0.0, 1.0, lengthscale, lmbda)
-            f2_val_kq = KQ_RBF_Uniform_Vectorized(u2, f2_val_normalized, 0.0, 1.0, lengthscale, lmbda)
+            f1_val_kq = KQ_RBF_Gaussian_Vectorized(u1, f1_val_normalized, jnp.zeros([T, 9]), jnp.repeat(jnp.eye(9)[np.newaxis, :, :], T, axis=0), lengthscale, lmbda)
+            f2_val_kq = KQ_RBF_Gaussian_Vectorized(u2, f2_val_normalized, jnp.zeros([T, 9]), jnp.repeat(jnp.eye(9)[np.newaxis, :, :], T, axis=0), lengthscale, lmbda)
     f1_val_kq, f2_val_kq = f1_val_kq * scale_1 + shift_1, f2_val_kq * scale_2 + shift_2
     f_max = jnp.maximum(f1_val_kq, f2_val_kq)
     scale, shift = f_max.std(), f_max.mean()
@@ -396,12 +401,12 @@ def run(args):
         print(f"MLMC MC: {I_MLMC_nmc} with cost {cost}")
         I_mc_err_dict[f'cost_{cost}'] = jnp.abs(I_MLMC_nmc - true_value)
 
-        if args.eps > 0.00003:
-            use_kq = True
-            I_MLMC_nkq, cost = mlmc(args, args.eps, N0, L, use_kq, rng_key)
-        else:
-            I_MLMC_nkq = jnp.nan
-            cost = jnp.nan
+        # if args.eps > 0.00003:
+        #     use_kq = True
+        #     I_MLMC_nkq, cost = mlmc(args, args.eps, N0, L, use_kq, rng_key)
+        # else:
+        I_MLMC_nkq = jnp.nan
+        cost = jnp.nan
         print(f"MLMC KQ: {I_MLMC_nkq} with cost {cost}")
         I_kq_err_dict[f'cost_{cost}'] = jnp.abs(I_MLMC_nkq - true_value)
     else:
