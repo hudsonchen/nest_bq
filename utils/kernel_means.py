@@ -23,8 +23,8 @@ def KQ_RBF_Gaussian(X, f_X, mu_X_theta, var_X_theta, scale, lmbda):
     """
     N, D = X.shape[0], X.shape[1]
 
-    # l = 1.0
-    l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
+    l = 0.1
+    # l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
     l *= scale
     A = 1.0
 

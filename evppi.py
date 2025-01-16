@@ -9,9 +9,11 @@ import pickle
 from utils.kernel_means import *
 from scipy.stats.qmc import Sobol
 from scipy.stats import norm
+import warnings
 
 jax.config.update('jax_platform_name', 'cpu')
 jax.config.update("jax_enable_x64", True)
+warnings.filterwarnings("ignore")
 
 if pwd.getpwuid(os.getuid())[0] == 'hudsonchen':
     os.chdir("/Users/hudsonchen/research/fx_bayesian_quaduature/nest_bq")
@@ -124,14 +126,10 @@ def sample_theta(T, use_qmc, rng_key):
     Theta_sigma = jnp.array([[0.01, 0.01 * 0.6], [0.01 * 0.6, 0.01]])
     if use_qmc:
         sobol_engine = Sobol(d=2, scramble=True)
-        qmc_points = sobol_engine.random(T)
-        u = norm.ppf(qmc_points)
+        u = sobol_engine.random(T)
     else:
-        u = jax.random.multivariate_normal(rng_key,
-                                        mean=jnp.zeros_like(Theta_mean),
-                                        cov=jnp.eye(Theta_sigma.shape[0]),
-                                        shape=(T,))
-    Theta = u @ jnp.linalg.cholesky(Theta_sigma) + Theta_mean
+        u = jax.random.uniform(rng_key, shape=(T, 2))
+    Theta = norm.ppf(u) @ jnp.linalg.cholesky(Theta_sigma) + Theta_mean
     Theta1 = Theta[:, 0][:, None]
     Theta2 = Theta[:, 1][:, None]
     return Theta1, Theta2, u
@@ -170,46 +168,50 @@ def sample_x_theta(N, Theta1, Theta2, use_qmc, rng_key):
 
     rng_keys = jax.random.split(rng_key, T)
     if use_qmc:
-        sobol_engine = Sobol(d=9, scramble=True)
-        qmc_points = sobol_engine.random(T * N)  # Generate all points
-        qmc_points = qmc_points.reshape(T, N, 9)
-        u1 = norm.ppf(qmc_points)
+        # sobol_engine = Sobol(d=9, scramble=True)
+        # qmc_points = sobol_engine.random(T * N)  # Generate all points
+        # qmc_points = qmc_points.reshape(T, N, 9)
+        # u1 = norm.ppf(qmc_points)
+        from joblib import Parallel, delayed
+        def generate_qmc_block(seed, N):
+            warnings.filterwarnings("ignore")
+            sobol_engine = Sobol(d=9, scramble=True, seed=seed)
+            return sobol_engine.random(N)
+        seeds = range(rng_key[0].item(), rng_key[0].item() + T)
+
+        # Use joblib for parallel generation
+        qmc_points = Parallel(n_jobs=-1)(
+            delayed(generate_qmc_block)(seed, N) for seed in seeds
+        )
+        u1 = jnp.array(qmc_points)  # Shape: (T, N, d)
     else:
-        u1 = jax.vmap(
-            lambda key, mean: jax.random.multivariate_normal(
-                key,
-                mean=jnp.zeros_like(mean),
-                cov=jnp.eye(sigma_1.shape[0]),
-                shape=(N,)
-            )
-        )(rng_keys, mean_1)
+        u1 = jax.random.uniform(rng_key, shape=(T, N, 9))
     L1 = jnp.linalg.cholesky(sigma_1)
-    x1= u1 @ L1 + mean_1[:, None, :]
+    x1= norm.ppf(u1) @ L1 + mean_1[:, None, :]
     
     f2_cond_dist_fn = partial(conditional_distribution, joint_mean=ThetaX_mean, joint_covariance=ThetaX_sigma,
                               dimensions_theta=[13], dimensions_x=[3, 10, 11, 12, 14, 15, 16, 17, 18])
     mean_2, sigma_2 = f2_cond_dist_fn(theta=Theta2)
 
     rng_key, _ = jax.random.split(rng_key)
-    rng_keys = jax.random.split(rng_key, T)
     if use_qmc:
-        sobol_engine = Sobol(d=9, scramble=True)
-        qmc_points = sobol_engine.random_base2(m=int(jnp.log2(T * N)) + 1)  # Generate all points
-        indices = jax.random.permutation(rng_key, qmc_points.shape[0])[:N*T]
-        qmc_points = qmc_points[indices, :].reshape(T, N, 9)
-        u2 = norm.ppf(qmc_points)
+        from joblib import Parallel, delayed
+        def generate_qmc_block(seed, N):
+            warnings.filterwarnings("ignore")
+            sobol_engine = Sobol(d=9, scramble=True, seed=seed)
+            return sobol_engine.random(N)
+        seeds = range(rng_key[0].item(), rng_key[0].item() + T)
+
+        # Use joblib for parallel generation
+        qmc_points = Parallel(n_jobs=-1)(
+            delayed(generate_qmc_block)(seed, N) for seed in seeds
+        )
+        u2 = jnp.array(qmc_points)  # Shape: (T, N, d)
     else:
-        u2 = jax.vmap(
-            lambda key, mean: jax.random.multivariate_normal(
-                key,
-                mean=jnp.zeros_like(mean),
-                cov=jnp.eye(sigma_2.shape[0]),
-                shape=(N,)
-            )
-        )(rng_keys, mean_2)
+        u2 = jax.random.uniform(rng_key, shape=(T, N, 9))
 
     L2 = jnp.linalg.cholesky(sigma_2)
-    x2= u2 @ L2 + mean_2[:, None, :]
+    x2 = norm.ppf(u2) @ L2 + mean_2[:, None, :]
     return u1, x1, u2, x2
 
 
@@ -236,7 +238,7 @@ def nested_kernel_quadrature(args, Theta1, Theta2, u, u1, x1, u2, x2):
     f2_val_normalized = (f2_val - shift_2[:, None]) / scale_2[:, None]
     # lmbda = 0.001 * N ** (-1)
     lengthscale = 1.0
-    lmbda = 1e-6
+    lmbda = 1e-8
     if T > 100:
         for t in range(T):
             if args.kernel == 'matern':
@@ -255,11 +257,11 @@ def nested_kernel_quadrature(args, Theta1, Theta2, u, u1, x1, u2, x2):
         f2_val_kq = f2_val_kq.squeeze()
     else:
         if args.kernel == 'matern':
-            f1_val_kq = KQ_Matern_12_Gaussian_Vectorized(u1, f1_val_normalized, lmbda) 
-            f2_val_kq = KQ_Matern_12_Gaussian_Vectorized(u2, f2_val_normalized, lmbda)
+            f1_val_kq = KQ_Matern_12_Uniform_Vectorized(u1, f1_val_normalized, lmbda) 
+            f2_val_kq = KQ_Matern_12_Uniform_Vectorized(u2, f2_val_normalized, lmbda)
         elif args.kernel == 'rbf':
-            f1_val_kq = KQ_RBF_Gaussian_Vectorized(u1, f1_val_normalized, jnp.zeros([T, 9]), jnp.eye(9)[None, :].repeat(T, axis=0), lengthscale, lmbda)
-            f2_val_kq = KQ_RBF_Gaussian_Vectorized(u2, f2_val_normalized, jnp.zeros([T, 9]), jnp.eye(9)[None, :].repeat(T, axis=0), lengthscale, lmbda)
+            f1_val_kq = KQ_RBF_Uniform_Vectorized(u1, f1_val_normalized, 0.0, 1.0, lengthscale, lmbda)
+            f2_val_kq = KQ_RBF_Uniform_Vectorized(u2, f2_val_normalized, 0.0, 1.0, lengthscale, lmbda)
     f1_val_kq, f2_val_kq = f1_val_kq * scale_1 + shift_1, f2_val_kq * scale_2 + shift_2
     f_max = jnp.maximum(f1_val_kq, f2_val_kq)
     scale, shift = f_max.std(), f_max.mean()
@@ -269,10 +271,7 @@ def nested_kernel_quadrature(args, Theta1, Theta2, u, u1, x1, u2, x2):
 
     scale, shift = f1_val_kq.std(), f1_val_kq.mean()
     f1_val_kq_normalized = (f1_val_kq - shift) / scale
-    # if args.kernel == 'matern':
     I_part_two_1 = KQ_Matern_12_Gaussian(u, f1_val_kq_normalized, lmbda) * scale + shift
-    # elif args.kernel == 'rbf':
-    # I_part_two_1 = KQ_RBF_Gaussian(u, f1_val_kq_normalized, jnp.zeros([2]), jnp.eye(2), lengthscale, lmbda) * scale + shift
     scale, shift = f2_val_kq.std(), f2_val_kq.mean()
     f2_val_kq_normalized = (f2_val_kq - shift) / scale
     I_part_two_2 = KQ_Matern_12_Gaussian(u, f2_val_kq_normalized, lmbda) * scale + shift
