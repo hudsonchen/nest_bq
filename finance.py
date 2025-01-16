@@ -93,10 +93,7 @@ def nested_monte_carlo(Theta, u_theta, x, u_x):
 def nested_kernel_quadrature(Theta, u_theta, x, u_x):
     T, N = x.shape[0], x.shape[1]
     f_val = price(Theta, x)
-    if N > 10:
-        lengthscale = 1.0
-    else:
-        lengthscale = 3.0
+    lengthscale = 1.0    
     # This is nest kernel quadrature for the inner expectation
     scale, shift = f_val.std(1), f_val.mean(1)
     f_val_normalized = (f_val - shift[:, None]) / scale[:, None]
@@ -135,8 +132,8 @@ def nested_kernel_quadrature_multi_level(Theta, u_theta, x, u_x, x_prev, u_x_pre
     f_val_normalized = (f_val - shift[:, None]) / scale[:, None]
     f_val_normalized = jnp.nan_to_num(f_val_normalized, 0.)
     lmbda = 1e-6
-    I_KQ = KQ_Matern_12_Uniform_Vectorized(u_x[:, :, None], f_val_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1]), lengthscale, lmbda)
-    # I_KQ = KQ_RBF_Gaussian_Vectorized(x[:, :, None], f_val_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1, 1]), lengthscale)    # I_KQ = I_KQ * scale + shift
+    # I_KQ = KQ_Matern_12_Uniform_Vectorized(u_x[:, :, None], f_val_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1]), lengthscale, lmbda)
+    I_KQ = KQ_RBF_Gaussian_Vectorized(x[:, :, None], f_val_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1, 1]), lengthscale, lmbda)
     I_KQ = I_KQ * scale + shift
     f_I_KQ = jnp.maximum(I_KQ, 0)
 
@@ -144,13 +141,13 @@ def nested_kernel_quadrature_multi_level(Theta, u_theta, x, u_x, x_prev, u_x_pre
     scale, shift = f_val_prev.std(1), f_val_prev.mean(1)
     f_val_prev_normalized = (f_val_prev - shift[:, None]) / scale[:, None]
     f_val_prev_normalized = jnp.nan_to_num(f_val_prev_normalized, 0.)
-    I_KQ_prev = KQ_Matern_12_Uniform_Vectorized(u_x_prev[:, :, None], f_val_prev_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1]), lengthscale, lmbda)
-    # I_KQ_prev = KQ_RBF_Gaussian_Vectorized(x_prev[:, :, None], f_val_prev_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1, 1]), lengthscale)
+    # I_KQ_prev = KQ_Matern_12_Uniform_Vectorized(u_x_prev[:, :, None], f_val_prev_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1]), lengthscale, lmbda)
+    I_KQ_prev = KQ_RBF_Gaussian_Vectorized(x_prev[:, :, None], f_val_prev_normalized, jnp.zeros([T, 1]), jnp.ones([T, 1, 1]), lengthscale, lmbda)
     I_KQ_prev = I_KQ_prev * scale + shift
     f_I_KQ_prev = jnp.maximum(I_KQ_prev, 0)
 
     # This is nest kernel quadrature for the outer expectation
-
+    lengthscale = 1.0
     f_difference = f_I_KQ - f_I_KQ_prev
     scale, shift = f_difference.std(), f_difference.mean()
     f_difference_normalized = (f_difference - shift) / scale
@@ -248,8 +245,12 @@ def run(args):
         print(f"MLMC MC: {I_MLMC_nmc} with cost {cost}")
         I_mc_err_dict[f'cost_{cost}'] = jnp.abs(I_MLMC_nmc - true_value)
 
-        use_kq = True
-        I_MLMC_nkq, cost = mlmc(args.eps, N0, L, use_kq, rng_key)
+        if args.eps > 0.00003:
+            use_kq = True
+            I_MLMC_nkq, cost = mlmc(args.eps, N0, L, use_kq, rng_key)
+        else:
+            I_MLMC_nkq = jnp.nan
+            cost = jnp.nan
         print(f"MLMC KQ: {I_MLMC_nkq} with cost {cost}")
         I_kq_err_dict[f'cost_{cost}'] = jnp.abs(I_MLMC_nkq - true_value)
     else:

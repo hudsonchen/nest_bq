@@ -1,6 +1,6 @@
 for seed in {0..40}
 do
-  for eps in 0.01 0.003 0.001 0.0003
+  for eps in 0.00003 0.00001
   do
     /home/zongchen/miniconda3/envs/cbq/bin/python finance.py --seed $seed --multi_level --eps $eps
   done

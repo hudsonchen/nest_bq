@@ -36,6 +36,7 @@ def get_config():
     parser.add_argument('--save_path', type=str, default='./')
     parser.add_argument('--multi_level', action='store_true', default=False)
     parser.add_argument('--qmc', action='store_true', default=False)
+    parser.add_argument('--kernel', type=str, default='matern')
     parser.add_argument('--eps', type=float, default=0.01)
     args = parser.parse_args()
     return args
@@ -123,8 +124,8 @@ def sample_theta(T, use_qmc, rng_key):
     Theta_sigma = jnp.array([[0.01, 0.01 * 0.6], [0.01 * 0.6, 0.01]])
     if use_qmc:
         sobol_engine = Sobol(d=2, scramble=True)
-        qmc_points = sobol_engine.random_base2(m=int(jnp.log2(T)) + 1)
-        u = norm.ppf(qmc_points)[:T]
+        qmc_points = sobol_engine.random(T)
+        u = norm.ppf(qmc_points)
     else:
         u = jax.random.multivariate_normal(rng_key,
                                         mean=jnp.zeros_like(Theta_mean),
@@ -166,42 +167,49 @@ def sample_x_theta(N, Theta1, Theta2, use_qmc, rng_key):
 
     mean_1, sigma_1 = f1_cond_dist_fn(theta=Theta1)
     T = Theta1.shape[0]
-    u1 = jnp.zeros([T, N, 9]) + 0.0
-    x1 = jnp.zeros([T, N, 9]) + 0.0
-    for i in range(T):
-        rng_key, _ = jax.random.split(rng_key)
-        if use_qmc:
-            sobol_engine = Sobol(d=9, scramble=True)
-            qmc_points = sobol_engine.random_base2(m=int(jnp.log2(N)) + 1)
-            u1_temp = norm.ppf(qmc_points)[:N]
-        else:
-            u1_temp = jax.random.multivariate_normal(rng_key,
-                                                    mean=jnp.zeros_like(mean_1[i, :]),
-                                                    cov=jnp.eye(sigma_1.shape[0]),
-                                                    shape=(N,))
-        L1 = jnp.linalg.cholesky(sigma_1)
-        u1 = u1.at[i, :, :].set(u1_temp)
-        x1 = x1.at[i, :, :].set(u1_temp @ L1 + mean_1[i, :])
 
+    rng_keys = jax.random.split(rng_key, T)
+    if use_qmc:
+        sobol_engine = Sobol(d=9, scramble=True)
+        qmc_points = sobol_engine.random(T * N)  # Generate all points
+        qmc_points = qmc_points.reshape(T, N, 9)
+        u1 = norm.ppf(qmc_points)
+    else:
+        u1 = jax.vmap(
+            lambda key, mean: jax.random.multivariate_normal(
+                key,
+                mean=jnp.zeros_like(mean),
+                cov=jnp.eye(sigma_1.shape[0]),
+                shape=(N,)
+            )
+        )(rng_keys, mean_1)
+    L1 = jnp.linalg.cholesky(sigma_1)
+    x1= u1 @ L1 + mean_1[:, None, :]
+    
     f2_cond_dist_fn = partial(conditional_distribution, joint_mean=ThetaX_mean, joint_covariance=ThetaX_sigma,
                               dimensions_theta=[13], dimensions_x=[3, 10, 11, 12, 14, 15, 16, 17, 18])
     mean_2, sigma_2 = f2_cond_dist_fn(theta=Theta2)
-    u2 = jnp.zeros([T, N, 9]) + 0.0
-    x2 = jnp.zeros([T, N, 9]) + 0.0
-    for i in range(T):
-        rng_key, _ = jax.random.split(rng_key)
-        if use_qmc:
-            sobol_engine = Sobol(d=9, scramble=True)
-            qmc_points = sobol_engine.random_base2(m=int(jnp.log2(N)) + 1)
-            u2_temp = norm.ppf(qmc_points)[:N]
-        else:
-            u2_temp = jax.random.multivariate_normal(rng_key,
-                                                mean=jnp.zeros_like(mean_2[i, :]),
-                                                cov=jnp.eye(sigma_2.shape[0]),
-                                                shape=(N,))
-        L2 = jnp.linalg.cholesky(sigma_2)
-        u2 = u2.at[i, :, :].set(u2_temp)
-        x2 = x2.at[i, :, :].set(u2_temp @ L2 + mean_2[i, :])
+
+    rng_key, _ = jax.random.split(rng_key)
+    rng_keys = jax.random.split(rng_key, T)
+    if use_qmc:
+        sobol_engine = Sobol(d=9, scramble=True)
+        qmc_points = sobol_engine.random_base2(m=int(jnp.log2(T * N)) + 1)  # Generate all points
+        indices = jax.random.permutation(rng_key, qmc_points.shape[0])[:N*T]
+        qmc_points = qmc_points[indices, :].reshape(T, N, 9)
+        u2 = norm.ppf(qmc_points)
+    else:
+        u2 = jax.vmap(
+            lambda key, mean: jax.random.multivariate_normal(
+                key,
+                mean=jnp.zeros_like(mean),
+                cov=jnp.eye(sigma_2.shape[0]),
+                shape=(N,)
+            )
+        )(rng_keys, mean_2)
+
+    L2 = jnp.linalg.cholesky(sigma_2)
+    x2= u2 @ L2 + mean_2[:, None, :]
     return u1, x1, u2, x2
 
 
@@ -220,17 +228,23 @@ def nested_monte_carlo(Theta1, Theta2, u, u1, x1, u2, x2):
     I_part_two_2 = jnp.mean((jnp.mean(f2_val, axis=1)))
     return I_part_one, I_part_two_1, I_part_two_2
 
-def nested_kernel_quadrature(Theta1, Theta2, u, u1, x1, u2, x2):
-    N, T = x1.shape[0], x1.shape[1]
+def nested_kernel_quadrature(args, Theta1, Theta2, u, u1, x1, u2, x2):
+    T, N = x1.shape[0], x1.shape[1]
     f1_val, f2_val = f1(Theta1, x1), f2(Theta2, x2)
     scale_1, shift_1, scale_2, shift_2 = f1_val.std(1), f1_val.mean(1), f2_val.std(1), f2_val.mean(1)
     f1_val_normalized = (f1_val - shift_1[:, None]) / scale_1[:, None]
     f2_val_normalized = (f2_val - shift_2[:, None]) / scale_2[:, None]
-    lmbda = 0.001 * N ** (-1)
+    # lmbda = 0.001 * N ** (-1)
+    lengthscale = 1.0
+    lmbda = 1e-6
     if T > 100:
         for t in range(T):
-            f1_val_kq_ = KQ_Matern_12_Gaussian(u1[t, :, :], f1_val_normalized[t], lmbda)
-            f2_val_kq_ = KQ_Matern_12_Gaussian(u2[t, :, :], f2_val_normalized[t], lmbda)
+            if args.kernel == 'matern':
+                f1_val_kq_ = KQ_Matern_12_Gaussian(u1[t, :, :], f1_val_normalized[t], lmbda)
+                f2_val_kq_ = KQ_Matern_12_Gaussian(u2[t, :, :], f2_val_normalized[t], lmbda)
+            elif args.kernel == 'rbf':
+                f1_val_kq_ = KQ_RBF_Gaussian(u1[t, :, :], f1_val_normalized[t], jnp.zeros([9]), jnp.eye(9), lengthscale, lmbda)
+                f2_val_kq_ = KQ_RBF_Gaussian(u2[t, :, :], f2_val_normalized[t], jnp.zeros([9]), jnp.eye(9), lengthscale, lmbda)
             if t == 0:
                 f1_val_kq = f1_val_kq_
                 f2_val_kq = f2_val_kq_
@@ -240,8 +254,12 @@ def nested_kernel_quadrature(Theta1, Theta2, u, u1, x1, u2, x2):
         f1_val_kq = f1_val_kq.squeeze()
         f2_val_kq = f2_val_kq.squeeze()
     else:
-        f1_val_kq = KQ_Matern_12_Gaussian_Vectorized(u1, f1_val_normalized, lmbda) 
-        f2_val_kq = KQ_Matern_12_Gaussian_Vectorized(u2, f2_val_normalized, lmbda)
+        if args.kernel == 'matern':
+            f1_val_kq = KQ_Matern_12_Gaussian_Vectorized(u1, f1_val_normalized, lmbda) 
+            f2_val_kq = KQ_Matern_12_Gaussian_Vectorized(u2, f2_val_normalized, lmbda)
+        elif args.kernel == 'rbf':
+            f1_val_kq = KQ_RBF_Gaussian_Vectorized(u1, f1_val_normalized, jnp.zeros([T, 9]), jnp.eye(9)[None, :].repeat(T, axis=0), lengthscale, lmbda)
+            f2_val_kq = KQ_RBF_Gaussian_Vectorized(u2, f2_val_normalized, jnp.zeros([T, 9]), jnp.eye(9)[None, :].repeat(T, axis=0), lengthscale, lmbda)
     f1_val_kq, f2_val_kq = f1_val_kq * scale_1 + shift_1, f2_val_kq * scale_2 + shift_2
     f_max = jnp.maximum(f1_val_kq, f2_val_kq)
     scale, shift = f_max.std(), f_max.mean()
@@ -251,7 +269,10 @@ def nested_kernel_quadrature(Theta1, Theta2, u, u1, x1, u2, x2):
 
     scale, shift = f1_val_kq.std(), f1_val_kq.mean()
     f1_val_kq_normalized = (f1_val_kq - shift) / scale
+    # if args.kernel == 'matern':
     I_part_two_1 = KQ_Matern_12_Gaussian(u, f1_val_kq_normalized, lmbda) * scale + shift
+    # elif args.kernel == 'rbf':
+    # I_part_two_1 = KQ_RBF_Gaussian(u, f1_val_kq_normalized, jnp.zeros([2]), jnp.eye(2), lengthscale, lmbda) * scale + shift
     scale, shift = f2_val_kq.std(), f2_val_kq.mean()
     f2_val_kq_normalized = (f2_val_kq - shift) / scale
     I_part_two_2 = KQ_Matern_12_Gaussian(u, f2_val_kq_normalized, lmbda) * scale + shift
@@ -299,7 +320,7 @@ def nested_kernel_quadrature_multi_level(Theta1, Theta2, u, u1_prev, x1_prev, u2
     return I_part_one, I_part_two_1, I_part_two_2
 
 
-def mlmc(eps, N0, L, use_kq, rng_key):
+def mlmc(args, eps, N0, L, use_kq, rng_key):
     rng_key, _ = jax.random.split(rng_key)
     # Check input parameters
     if L < 2:
@@ -323,7 +344,7 @@ def mlmc(eps, N0, L, use_kq, rng_key):
             Theta1, Theta2, u, u1, x1, u2, x2 = sample(T, N, False, rng_key)
 
             if use_kq:
-                Y_part_one, Y_part_two_1, Y_part_two_2 = nested_kernel_quadrature(Theta1, Theta2, u, u1, x1, u2, x2)
+                Y_part_one, Y_part_two_1, Y_part_two_2 = nested_kernel_quadrature(args, Theta1, Theta2, u, u1, x1, u2, x2)
                 Yl_part_one = Yl_part_one.at[l].set(Y_part_one)
                 Yl_part_two_1 = Yl_part_two_1.at[l].set(Y_part_two_1)
                 Yl_part_two_2 = Yl_part_two_2.at[l].set(Y_part_two_2)
@@ -372,12 +393,16 @@ def run(args):
     
     if args.multi_level:
         use_kq = False
-        I_MLMC_nmc, cost = mlmc(args.eps, N0, L, use_kq, rng_key)
+        I_MLMC_nmc, cost = mlmc(args, args.eps, N0, L, use_kq, rng_key)
         print(f"MLMC MC: {I_MLMC_nmc} with cost {cost}")
         I_mc_err_dict[f'cost_{cost}'] = jnp.abs(I_MLMC_nmc - true_value)
 
-        use_kq = True
-        I_MLMC_nkq, cost = mlmc(args.eps, N0, L, use_kq, rng_key)
+        if args.eps > 0.00003:
+            use_kq = True
+            I_MLMC_nkq, cost = mlmc(args, args.eps, N0, L, use_kq, rng_key)
+        else:
+            I_MLMC_nkq = jnp.nan
+            cost = jnp.nan
         print(f"MLMC KQ: {I_MLMC_nkq} with cost {cost}")
         I_kq_err_dict[f'cost_{cost}'] = jnp.abs(I_MLMC_nkq - true_value)
     else:
@@ -393,7 +418,7 @@ def run(args):
         print(f"NMC (QMC {args.qmc}): {I_nmc} with cost {cost}")
         I_mc_err_dict[f'cost_{cost}'] = jnp.abs(I_nmc - true_value)
 
-        I_nkq_part_one, I_nkq_part_two_1, I_nkq_part_two_2 = nested_kernel_quadrature(Theta1, Theta2, u, u1, x1, u2, x2)
+        I_nkq_part_one, I_nkq_part_two_1, I_nkq_part_two_2 = nested_kernel_quadrature(args, Theta1, Theta2, u, u1, x1, u2, x2)
         I_nkq = I_nkq_part_one - jnp.maximum(I_nkq_part_two_1, I_nkq_part_two_2)
         print(f"NKQ (QMC {args.qmc}): {I_nkq} with cost {cost}")
         I_kq_err_dict[f'cost_{cost}'] = jnp.abs(I_nkq - true_value)
@@ -409,7 +434,7 @@ def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
     args.save_path += f'results/evppi/'
-    args.save_path += f"multi_level_{args.multi_level}__qmc_{args.qmc}__eps_{args.eps}__seed_{args.seed}"
+    args.save_path += f"multi_level_{args.multi_level}__qmc_{args.qmc}__eps_{args.eps}__kernel_{args.kernel}__seed_{args.seed}"
     os.makedirs(args.save_path, exist_ok=True)
     return args
 

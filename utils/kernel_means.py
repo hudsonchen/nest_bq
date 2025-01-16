@@ -23,8 +23,8 @@ def KQ_RBF_Gaussian(X, f_X, mu_X_theta, var_X_theta, scale, lmbda):
     """
     N, D = X.shape[0], X.shape[1]
 
-    l = 1.0
-    # l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
+    # l = 1.0
+    l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
     l *= scale
     A = 1.0
 
@@ -254,7 +254,6 @@ def KQ_Matern_32_Uniform_Vectorized(X, f_X, a, b, scale, lmbda):
         lmbda: regularization
     Returns:
         I_NKQ: (T, )
-        I_NKQ_std: (T, )
     """
     vmap_func = jax.vmap(KQ_Matern_32_Uniform, in_axes=(0, 0, 0, 0, None, None))
     return vmap_func(X, f_X, a, b, scale, lmbda)
@@ -280,9 +279,8 @@ def KQ_Matern_12_Uniform(X, f_X, a, b, scale, lmbda):
     N, D = X.shape[0], X.shape[1]
 
     A = 1.
-    # l = jnp.median(jnp.abs(X - X.mean(0)))  # Median heuristic
-    # l = 1.
-    l = jnp.ones(D)
+    l = jnp.median(jnp.abs(X - X.mean(0))) * jnp.ones(D)  # Median heuristic
+    # l = jnp.ones(D)
     l *= scale
 
     K = A * my_Matern_12_product(X, X, l)
@@ -308,7 +306,6 @@ def KQ_Matern_12_Uniform_Vectorized(X, f_X, a, b, scale, lmbda):
         lmdba: regularization
     Returns:
         I_NKQ: (T, )
-        I_NKQ_std: (T, )
     """
     vmap_func = jax.vmap(KQ_Matern_12_Uniform, in_axes=(0, 0, 0, 0, None, None))
     return vmap_func(X, f_X, a, b, scale, lmbda)
