@@ -1,6 +1,6 @@
 # Nested Kernel Quadrature
 
-This repository contains the implementation of the code for the paper "Nested Expectations with Kernel Quadrature"
+This repository contains the implementation of the code for the paper "Nested Expectations with Kernel Quadrature". 
 
 ## Installation
 
