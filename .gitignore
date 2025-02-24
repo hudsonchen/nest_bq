@@ -3,3 +3,7 @@ __pycache__/
 /results
 /MLMCBO
 /results_server
+/notebooks
+/plotting_notebooks
+/figures
+/server_scripts
